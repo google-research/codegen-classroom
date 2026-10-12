@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codegen-classroom"
+version = "0.1.0"
+description = "A framework for iterative code generation for ML and data analysis tasks using parallel LLM agents in Colab."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Google LLC"},
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "google-genai",
+    "httpx",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "scipy",
+    "etils[epath]",
+    "absl-py",
+    "python-dotenv",
+    "pillow",
+]
+
+[project.optional-dependencies]
+notebook = [
+    "plotly",
+    "ipython",
+]
+torch = [
+    "torch",
+    "torchvision",
+]
+jax = [
+    "jax",
+]
+lightgbm = [
+    "lightgbm",
+]
+dev = [
+    "pytest",
+    "pytest-mock",
+]
+all = [
+    "plotly",
+    "ipython",
+    "torch",
+    "torchvision",
+    "jax",
+    "lightgbm",
+    "pytest",
+    "pytest-mock",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/google-research/codegen-classroom"
