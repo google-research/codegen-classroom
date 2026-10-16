@@ -800,6 +800,19 @@ def process_cycle_results(
   next_classroom: Classroom = []
   for student, cycle_result in zip(current_classroom, students_cycle_results):
     results_history[student.name].append(cycle_result)  # Add to history first
+    has_valid_score = (
+        cycle_result.overall_score is not None
+        and cycle_result.overall_score > -float("inf")
+    )
+    if has_valid_score or not cycle_result.exclude_reason:
+      student_dir = os.path.dirname(student.student_result_path)
+      if not os.path.exists(student_dir):
+        data_utils.create_dir(student_dir)
+      data_utils.save_dataframe_to_csv(
+          pd.DataFrame([cycle_result.flatten()]),
+          student.student_result_path,
+          mode="a",
+      )
     if cycle_result.exclude_reason:
       logger.warning(
           "[%s] Excluded in cycle %s: %s",
@@ -808,15 +821,6 @@ def process_cycle_results(
           cycle_result.exclude_reason,
       )
       continue
-
-    student_dir = os.path.dirname(student.student_result_path)
-    if not os.path.exists(student_dir):
-      data_utils.create_dir(student_dir)
-    data_utils.save_dataframe_to_csv(
-        pd.DataFrame([cycle_result.flatten()]),
-        student.student_result_path,
-        mode="a",
-    )
     next_classroom.append(student)
 
   logger.info(

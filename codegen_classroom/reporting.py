@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Mapping, Sequence
 import dataclasses
 import difflib
@@ -24,6 +25,7 @@ import logging
 import os
 import re
 import sys
+import textwrap
 from typing import Any
 import warnings
 
@@ -293,7 +295,9 @@ def _format_cell_value(val: Any, precision: int = 3) -> str:
   """Formats a table or key-value cell, rounding floats to `precision` places."""
   if val is None or pd.isna(val):
     return ""
-  if type(val) in (int, np.integer, bool):
+  if type(val) in (int, np.integer, bool) or (
+      isinstance(val, str) and "_" in val
+  ):
     return str(val)
   try:
     f = float(val)
@@ -319,6 +323,7 @@ def build_run_report(
     worst_n: int = 1,
     include_plots: bool = True,
     solution_id: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> list[ReportSection]:
   """Builds a complete run report reading only from the run directory."""
   run_dir_path = epath.Path(run_dir)
@@ -383,7 +388,8 @@ def build_run_report(
   )
 
   overview_payload = {
-      "Run Path": str(run_dir_path),
+      "Run Path": data_utils.sanitize_path(run_dir_path) or run_dir_path.name,
+      "_run_dir": str(run_dir_path),
       "Name": run_dir_path.name,
       "Total Cycles": total_cycles,
       "Valid Students": valid_students,
@@ -483,6 +489,103 @@ def build_run_report(
       ),
       reverse=True,
   )
+
+  if students_info and (
+      students_info[0]["test_score"] is not None
+      or students_info[0]["val_score"] is not None
+  ):
+    best_student = students_info[0]
+    overview_payload["Best Student"] = (
+        f"{best_student['name']} (Cycle {best_student['best_cycle']})"
+        if best_student["best_cycle"] is not None
+        else best_student["name"]
+    )
+    if best_student["val_score"] is not None:
+      overview_payload["Best Validation Score"] = _format_cell_value(
+          best_student["val_score"]
+      )
+    if best_student["test_score"] is not None:
+      overview_payload["Best Test Score"] = _format_cell_value(
+          best_student["test_score"]
+      )
+    c0_scores = []
+    for s_name in all_students:
+      for r in student_results.get(s_name, []):
+        if _get_cycle_num(r) == 0:
+          sv = r.get("overall_score")
+          if sv is not None and not pd.isna(sv):
+            try:
+              sf = float(sv)
+              if np.isfinite(sf):
+                c0_scores.append(sf)
+            except (ValueError, TypeError):
+              pass
+    best_val_overall = max(
+        (s["val_score"] for s in students_info if s["val_score"] is not None),
+        default=None,
+    )
+    if c0_scores and best_val_overall is not None:
+      c0_best = max(c0_scores)
+      delta = best_val_overall - c0_best
+      overview_payload["Validation Score Progression"] = (
+          f"{c0_best:.4f} -> {best_val_overall:.4f} ({delta:+.4f})"
+      )
+    if metric_cols and best_student.get("metrics"):
+      best_m = [
+          f"{m}={_format_cell_value(best_student['metrics'][m])}"
+          for m in metric_cols
+          if not _is_empty_cell(best_student["metrics"].get(m))
+      ]
+      if best_m:
+        overview_payload["Best Metrics"] = ", ".join(best_m)
+
+  # Populate Tags, Description, Insights from metadata or best_analysis.json
+  analysis_data: dict[str, Any] = {}
+  best_analysis_path = run_dir_path / "best_analysis.json"
+  if best_analysis_path.exists():
+    try:
+      raw_analysis = data_utils.load_json_from_file(str(best_analysis_path))
+      if isinstance(raw_analysis, Mapping):
+        analysis_data = dict(raw_analysis)
+    except Exception:  # pylint: disable=broad-exception-caught
+      pass
+
+  def _clean_str(v: Any) -> str | None:
+    if v is None:
+      return None
+    s = str(v).strip()
+    if not s or s.lower() in ("nan", "none", "n/a", "null", "—"):
+      return None
+    return s
+
+  tags_val = _clean_str(
+      (metadata.get("tags") if metadata else None)
+      or (metadata.get("Tags") if metadata else None)
+      or (metadata.get("model_tags") if metadata else None)
+      or analysis_data.get("model_tags")
+      or analysis_data.get("tags")
+  )
+  desc_val = _clean_str(
+      (metadata.get("description") if metadata else None)
+      or (metadata.get("Description") if metadata else None)
+      or (metadata.get("model_description") if metadata else None)
+      or analysis_data.get("model_description")
+      or analysis_data.get("description")
+  )
+  insights_val = _clean_str(
+      (metadata.get("insights") if metadata else None)
+      or (metadata.get("Insights") if metadata else None)
+      or (metadata.get("model_insights") if metadata else None)
+      or analysis_data.get("model_insights")
+      or analysis_data.get("insights")
+  )
+
+  if tags_val:
+    overview_payload["Tags"] = tags_val
+  if desc_val:
+    overview_payload["Description"] = desc_val
+  if insights_val:
+    overview_payload["Insights"] = insights_val
 
   has_best_cycle = any(s["best_cycle"] is not None for s in students_info)
   has_val_score = any(s["val_score"] is not None for s in students_info)
@@ -671,12 +774,57 @@ def build_run_report(
     if not code_text or not str(code_text).strip():
       continue
 
+    if (
+        not plan_text or pd.isna(plan_text) or not str(plan_text).strip()
+    ) and code_text:
+      try:
+        tree = ast.parse(str(code_text))
+        doc = ast.get_docstring(tree)
+        if not doc:
+          for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name == "solution":
+              doc = ast.get_docstring(node)
+              break
+        if not doc:
+          for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and ast.get_docstring(node):
+              doc = ast.get_docstring(node)
+              break
+        if doc:
+          plan_text = doc.strip()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
+      if not plan_text or pd.isna(plan_text) or not str(plan_text).strip():
+        step_comments = [
+            re.sub(r"^#\s*", "", ln.strip())
+            for ln in str(code_text).splitlines()
+            if re.match(r"^\s*#\s*(?:\d+\.|Step\s+\d+|---)", ln)
+        ]
+        if step_comments:
+          plan_text = "\n".join(f"- {c}" for c in step_comments)
+        elif exec_feedback and pd.notna(exec_feedback):
+          first_fb = next(
+              (
+                  ln.strip()
+                  for ln in str(exec_feedback).splitlines()
+                  if ln.strip() and not ln.strip().startswith("[Note:")
+              ),
+              "",
+          )
+          if first_fb:
+            plan_text = first_fb
+
     valid_candidates.append({
         "name": s_name,
         "best_cycle": best_c,
         "val_score": s_info["val_score"],
         "test_score": s_info["test_score"],
-        "plan": str(plan_text) if plan_text and pd.notna(plan_text) else None,
+        "metrics": s_info.get("metrics") or {},
+        "plan": (
+            str(plan_text).strip()
+            if plan_text and pd.notna(plan_text) and str(plan_text).strip()
+            else None
+        ),
         "code": str(code_text).strip(),
         "feedback": (
             str(exec_feedback)
@@ -711,20 +859,25 @@ def build_run_report(
 
   def _add_cand_sections(cand: dict[str, Any], title: str) -> None:
     v_s, t_s = cand["val_score"], cand["test_score"]
+    cand_kv: dict[str, Any] = {
+        "Student": cand["name"],
+        "Best Cycle": cand["best_cycle"],
+        "Validation Score": _format_cell_value(v_s) if v_s is not None else "—",
+        "Test Score": _format_cell_value(t_s) if t_s is not None else "—",
+    }
+    if metric_cols and cand.get("metrics"):
+      cand_m = [
+          f"{m}={_format_cell_value(cand['metrics'][m])}"
+          for m in metric_cols
+          if not _is_empty_cell(cand["metrics"].get(m))
+      ]
+      if cand_m:
+        cand_kv["Metrics"] = ", ".join(cand_m)
     sections.append(
         ReportSection(
             title=title,
             kind="keyvalue",
-            payload={
-                "Student": cand["name"],
-                "Best Cycle": cand["best_cycle"],
-                "Validation Score": (
-                    _format_cell_value(v_s) if v_s is not None else "—"
-                ),
-                "Test Score": (
-                    _format_cell_value(t_s) if t_s is not None else "—"
-                ),
-            },
+            payload=cand_kv,
             level=2,
         )
     )
@@ -744,6 +897,65 @@ def build_run_report(
               "text",
               cand["feedback"],
               level=3,
+          )
+      )
+
+  # Solution analysis (placed directly above Top Solution 1)
+  if (
+      tags_val
+      and "model_tags" not in analysis_data
+      and "tags" not in analysis_data
+  ):
+    analysis_data["model_tags"] = tags_val
+  if (
+      desc_val
+      and "model_description" not in analysis_data
+      and "description" not in analysis_data
+  ):
+    analysis_data["model_description"] = desc_val
+  if (
+      insights_val
+      and "model_insights" not in analysis_data
+      and "insights" not in analysis_data
+  ):
+    analysis_data["model_insights"] = insights_val
+
+  if analysis_data:
+    analysis_blocks = []
+    for k, v in analysis_data.items():
+      if v is None or str(v).strip() in ("", "N/A", "None", "nan"):
+        continue
+      heading = str(k).replace("_", " ").strip().title()
+      k_lower = str(k).lower()
+      if "tag" in k_lower:
+        if isinstance(v, list):
+          tag_items = [str(x).strip().strip("`") for x in v if str(x).strip()]
+        else:
+          tag_items = [
+              t.strip().strip("`")
+              for t in str(v).split(",")
+              if t.strip() and t.strip().strip("`")
+          ]
+        val_str = "\n".join(f"* `{t}`" for t in tag_items)
+      elif "description" in k_lower or "insight" in k_lower:
+        lines = str(v).strip().splitlines()
+        val_str = "\n".join(
+            f"> {line}" if line.strip() else ">" for line in lines
+        )
+      else:
+        val_str = (
+            ", ".join(str(x) for x in v)
+            if isinstance(v, list)
+            else str(v).strip()
+        )
+      analysis_blocks.append(f"### {heading}\n\n{val_str}")
+    if analysis_blocks:
+      sections.append(
+          ReportSection(
+              title="Analysis",
+              kind="markdown",
+              payload="\n\n".join(analysis_blocks),
+              level=2,
           )
       )
 
@@ -771,24 +983,43 @@ def build_run_report(
         )
       _add_cand_sections(cand, title)
 
-  # Solution analysis
-  best_analysis_path = run_dir_path / "best_analysis.json"
-  if best_analysis_path.exists():
-    try:
-      analysis = data_utils.load_json_from_file(str(best_analysis_path))
-      if hasattr(analysis, "items"):
-        sections.append(
-            ReportSection(
-                title="Analysis",
-                kind="markdown",
-                payload="\n\n".join(
-                    f"### {k}\n{v}" for k, v in analysis.items()
-                ),
-                level=2,
-            )
-        )
-    except Exception:  # pylint: disable=broad-exception-caught
-      pass
+  shared_inst = ""
+  for s in students or []:
+    inst = getattr(s, "system_instruction", None) or getattr(
+        getattr(s, "config", None), "system_instruction", None
+    )
+    if inst:
+      shared_inst = str(inst)
+      break
+  if not shared_inst and (run_dir_path / "agent_configs").is_dir():
+    cfg_paths = sorted((run_dir_path / "agent_configs").glob("*_config.json"))
+    student_cfgs = [
+        p for p in cfg_paths if p.name != "solution_metadata_config.json"
+    ]
+    for cfg_p in student_cfgs:
+      try:
+        cfg_d = data_utils.load_json_from_file(str(cfg_p))
+        if isinstance(cfg_d, Mapping) and cfg_d.get("system_instruction"):
+          shared_inst = str(cfg_d["system_instruction"])
+          break
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
+  if shared_inst.strip():
+    for sep in ("\n\n## Assigned Classroom Persona", "\n\nPersona:"):
+      shared_inst = shared_inst.split(sep)[0]
+    cleaned_lines = [
+        l
+        for l in shared_inst.strip().splitlines()
+        if not l.strip().startswith("# CUSTOMIZE:")
+    ]
+    wrapped_inst = _format_markdown_block("\n".join(cleaned_lines), width=78)
+    quoted = "\n".join(
+        f"> {'##' + l if l.startswith('#') else l}".rstrip()
+        for l in wrapped_inst.splitlines()
+    )
+    sections.append(
+        ReportSection("Student Instructions", "markdown", quoted, level=2)
+    )
 
   return sections
 
@@ -995,6 +1226,68 @@ def render_report(
           print(f"{k}: {_format_cell_value(v, precision=precision)}")
 
 
+def _format_markdown_block(text: str, width: int = 80) -> str:
+  """Formats markdown prose to wrap at `width` and insert blank lines before lists."""
+  list_item_re = re.compile(r"^(\s*)((?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?)(.*)$")
+  out: list[str] = []
+  in_code = False
+  for raw in text.splitlines():
+    line = raw.rstrip()
+    stripped = line.lstrip()
+    if stripped.startswith(("```", "~~~")):
+      if not in_code and out and out[-1]:
+        out.append("")
+      out.append(line)
+      in_code = not in_code
+      continue
+    if in_code:
+      out.append(line)
+      continue
+    if not stripped:
+      if out and out[-1]:
+        out.append("")
+      continue
+    if stripped.startswith(("#", "|", "![", ">")):
+      if stripped.startswith("#") and out and out[-1]:
+        out.append("")
+      out.append(line)
+      continue
+    m = list_item_re.match(line)
+    if m:
+      if (
+          out
+          and out[-1]
+          and not list_item_re.match(out[-1])
+          and not out[-1].startswith(" ")
+      ):
+        out.append("")
+      indent, marker, body = m.groups()
+      sub_indent = indent + " " * len(marker)
+      out.append(
+          textwrap.fill(
+              body,
+              width=width,
+              initial_indent=indent + marker,
+              subsequent_indent=sub_indent,
+              break_long_words=False,
+              break_on_hyphens=False,
+          )
+      )
+      continue
+    indent = line[: len(line) - len(stripped)]
+    out.append(
+        textwrap.fill(
+            stripped,
+            width=width,
+            initial_indent=indent,
+            subsequent_indent=indent,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+    )
+  return "\n".join(out)
+
+
 def write_report(
     run_dir: str | epath.Path,
     sections: list[ReportSection],
@@ -1027,7 +1320,7 @@ def write_report(
     source_dir = None
     for sec in sections:
       if sec.kind == "keyvalue" and hasattr(sec.payload, "get"):
-        rp = sec.payload.get("Run Path")
+        rp = sec.payload.get("_run_dir") or sec.payload.get("Run Path")
         if rp and epath.Path(rp).exists():
           source_dir = epath.Path(rp)
           break
@@ -1079,7 +1372,7 @@ def write_report(
 
     if sec.kind == "markdown":
       if sec.payload:
-        lines.append(str(sec.payload))
+        lines.append(_format_markdown_block(str(sec.payload)))
         lines.append("")
     elif sec.kind in ("code", "text"):
       is_text = (
@@ -1123,13 +1416,7 @@ def write_report(
         lines.append(f"* **{k}**: {val_str}")
       lines.append("")
 
-  output_lines = [
-      "<!-- disableFinding(LINE_OVER_80) -->",
-      "<!-- disableFinding(WHITESPACE_LINES) -->",
-      "<!-- disableFinding(WHITESPACE_TRAILING) -->",
-      "<!-- disableFinding(LIST_NO_LINE) -->",
-      "",
-  ]
-  output_lines.extend(lines)
-  clean_text = "\n".join(line.rstrip() for line in output_lines).strip() + "\n"
+  raw_text = "\n".join(lines)
+  stripped = [line.rstrip() for line in raw_text.splitlines()]
+  clean_text = re.sub(r"\n{3,}", "\n\n", "\n".join(stripped)).strip() + "\n"
   md_file.write_text(clean_text)

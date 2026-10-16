@@ -111,7 +111,7 @@ class GeminiAgentTest(AgentsTestBase):
   )
   def test_generate(self, system_instructions):
     config = agents.AgentConfig(
-        name='code_gen_agent',
+        name='codegen_agent',
         api_key='mock_api_key',
         system_instruction=system_instructions,
     )

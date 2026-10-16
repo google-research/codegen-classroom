@@ -1,6 +1,7 @@
 # Codegen Classroom 🎓
 
 ### A framework for iterative code generation for ML and data analysis tasks
+
 ### using parallel LLM agents in Colab.
 
 --------------------------------------------------------------------------------
@@ -10,11 +11,11 @@
 Codegen Classroom **automates code generation** for tasks that can be scored
 (e.g., regression, classification, signal processing) using **parallel
 [Gemini](https://ai.google.dev/gemini-api/docs/models) agents** in Colab. The
-library operates as an **autonomous LLM agent loop**; it
-evaluates the output of a language model iteratively. It is best suited for
-tasks where solution quality can be **scored numerically**. Agents
-**iteratively write, test, and refine** solutions in a learning loop where code
-is **executed and scored** against quantitative metrics.
+library operates as an **autonomous LLM agent loop**; it evaluates the output of
+a language model iteratively. It is best suited for tasks where solution quality
+can be **scored numerically**. Agents **iteratively write, test, and refine**
+solutions in a learning loop where code is **executed and scored** against
+quantitative metrics.
 
 Agents **improve based on performance** feedback (scores, errors) and can
 **collaborate** with other agents to share insights and escape local optima.
@@ -32,26 +33,31 @@ perform the **implementation and iterative refinement**.
 *   Python 3.9 or higher
 *   Google Colab or Jupyter Notebook environment
 
-### Installation & Setup
+### Installation and Setup
 
 We recommend using a virtual environment to avoid dependency conflicts.
 
 1.  **Create a virtual environment**:
+
     ```bash
     python3 -m venv .venv
     ```
 
 2.  **Activate the virtual environment**:
+
     *   On Linux/macOS:
+
         ```bash
         source .venv/bin/activate
         ```
     *   On Windows:
+
         ```bash
         .venv\Scripts\activate
         ```
 
 3.  **Install dependencies in editable mode**:
+
     ```bash
     # Standard installation (core library - matplotlib included)
     pip install -e .
@@ -71,24 +77,27 @@ We recommend using a virtual environment to avoid dependency conflicts.
     # All dependencies (dev tools, torch, jax, lightgbm):
     pip install -e ".[all]"
     ```
+
     *Note*: `matplotlib` is a core dependency, while `plotly` and `ipython` live
     in the `[notebook]` extra (`pip install codegen_classroom[notebook]`).
     `lightgbm` is the approved gradient boosting framework; `xgboost` is not
     supported.
 
-4.  **Configure Environment Variables**:
-    Copy `.env.example` to `.env` and fill in your `GEMINI_API_KEY`.
+4.  **Configure Environment Variables**: Copy `.env.example` to `.env` and fill
+    in your `GEMINI_API_KEY`.
+
     ```bash
     cp .env.example .env
     ```
 
-5.  **Run Tests**:
-    Verify the local installation by running the test suite:
+5.  **Run Tests**: Verify the local installation by running the test suite:
+
     ```bash
     pytest
     ```
 
 6.  **Set up the Colab/Jupyter Kernel** (optional):
+
     ```bash
     pip install ipykernel
     python -m ipykernel install --user --name=codegen-classroom --display-name "Python (Codegen Classroom)"
@@ -166,20 +175,18 @@ print("Final evaluation completed:", eval_results)
 
 The core library is organized into the following modules:
 
-*   [agent_config.py](./codegen_classroom/agent_config.py):
-    Global configuration defaults for models, generation parameters, and
-    execution timeouts.
+*   [agent_config.py](./codegen_classroom/agent_config.py): Global configuration
+    defaults for models, generation parameters, and execution timeouts.
 *   [agents.py](./codegen_classroom/agents.py): Defines the `StudentAgent`,
-    including **state management** (`best_score`, `best_solution`),
-    **refinement logic**, and **mutation strategies** (self-reflection, peer
-    crossover).
+    including **state management** (`best_score`, `best_solution`), **refinement
+    logic**, and **mutation strategies** (self-reflection, peer crossover).
 *   [code_execution.py](./codegen_classroom/code_execution.py): Handles
     **extraction of Python code** blocks from LLM responses and **executes the
     code** in a sandboxed environment, capturing `stdout`, `stderr`, and
     results.
 *   [data_utils.py](./codegen_classroom/data_utils.py): Helpers for **data
-    loading**, generic file operations via `etils.epath`, **run ID
-    generation**, and local leaderboard tracking.
+    loading**, generic file operations via `etils.epath`, **run ID generation**,
+    and local leaderboard tracking.
 *   [metrics.py](./codegen_classroom/metrics.py): Contains definitions for
     individual **performance metrics** (e.g., MAE, R², Pearson, Worst-Group
     Accuracy), including computation and **normalization logic**.
@@ -197,6 +204,35 @@ The core library is organized into the following modules:
     **Orchestrates** the entire agent learning process. Contains the main
     `run_learning_cycle` function and helpers to **run agents in parallel** and
     perform final evaluations across strategies (`first`, `last`, `best`).
+*   [tasks/](./codegen_classroom/tasks/): Domain-specific benchmark suites and
+    reference scaffolding. See the
+    [Task Authoring Guide](./codegen_classroom/tasks/AGENTS.md) and the
+    [canonical template task](./codegen_classroom/tasks/template/).
+
+--------------------------------------------------------------------------------
+
+## Benchmark Tasks
+
+Each benchmark task under
+[`codegen_classroom/tasks/<task>/`](./codegen_classroom/tasks/) is a
+self-contained package providing a shared configuration and prompt module
+(`config.py`), a dataset loader (`data_loader.py`), a headless runner
+(`run_<task>.py`), unit tests (`run_<task>_test.py`), a companion notebook
+(`<task>.ipynb`), a `leaderboard.tsv`, and archived top solutions
+(`solutions/`).
+
+```bash
+# Run a benchmark task headlessly:
+python -m codegen_classroom.tasks.template.run_template
+
+# Verify a single task or all tasks before contributing:
+python -m codegen_classroom.verify_task --task template --strict
+python -m codegen_classroom.verify_task --all
+```
+
+To create a new benchmark task, copy
+[`tasks/template/`](./codegen_classroom/tasks/template/) and follow
+[`tasks/AGENTS.md`](./codegen_classroom/tasks/AGENTS.md).
 
 --------------------------------------------------------------------------------
 

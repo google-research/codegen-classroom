@@ -272,6 +272,59 @@ class DataUtilsTest(parameterized.TestCase):
     self.assertTrue(pd.isna(df_read.loc[0, 'tags']))
     self.assertEqual(df_read.loc[2, 'tags'], 'xgb')
 
+    # Fourth write with run_dir path normalization
+    df4 = pd.DataFrame({
+        'score': [18.0],
+        'name': ['David'],
+        'run_dir': ['/tmp/absolute/parent_dir/my_run_dir'],
+    })
+    data_utils.submit_results_to_local_leaderboard(leaderboard_file, df4)
+
+    df_read2 = pd.read_csv(leaderboard_file, sep='\t')
+    self.assertLen(df_read2, 4)
+    self.assertEqual(df_read2.loc[3, 'run_dir'], 'parent_dir/my_run_dir')
+
+    # Fifth write with None/empty run_dir
+    df5 = pd.DataFrame({
+        'score': [20.0],
+        'name': ['Eve'],
+        'run_dir': [None],
+    })
+    data_utils.submit_results_to_local_leaderboard(leaderboard_file, df5)
+
+    df_read3 = pd.read_csv(leaderboard_file, sep='\t')
+    self.assertLen(df_read3, 5)
+    self.assertTrue(pd.isna(df_read3.loc[4, 'run_dir']))
+
+    # Sixth write with solution_dir normalization and header-only existing file
+    header_only_lb = os.path.join(self.test_dir, 'leaderboard_custom.txt')
+    with open(header_only_lb, 'w') as f:
+      f.write('score\tname\tsolution_dir\n')
+    df6 = pd.DataFrame({
+        'score': [25.0],
+        'name': ['Frank'],
+        'solution_dir': ['/workspace/tasks/housing/solutions/sol_1'],
+    })
+    with self.assertLogs(data_utils.logger, level='WARNING') as cm:
+      data_utils.submit_results_to_local_leaderboard(header_only_lb, df6)
+    self.assertTrue(any('does not end with .tsv' in msg for msg in cm.output))
+    df_read4 = pd.read_csv(header_only_lb, sep='\t')
+    self.assertLen(df_read4, 1)
+    self.assertEqual(df_read4.loc[0, 'solution_dir'], 'solutions/sol_1')
+
+  def test_round_leaderboard_metrics(self):
+    df = pd.DataFrame({
+        'test_accuracy': [0.1234567, 0.987654],
+        'overall_score': [0.777777, 0.888888],
+        'train_cycles': [10, 5],
+        'student': ['s1', 's2'],
+    })
+    rounded = data_utils.round_leaderboard_metrics(df, precision=3)
+    self.assertEqual(list(rounded['test_accuracy']), [0.123, 0.988])
+    self.assertEqual(list(rounded['overall_score']), [0.778, 0.889])
+    self.assertEqual(list(rounded['train_cycles']), [10, 5])
+    self.assertEqual(list(rounded['student']), ['s1', 's2'])
+
   @parameterized.named_parameters(
       dict(
           testcase_name='with_runfiles',
@@ -296,6 +349,27 @@ class DataUtilsTest(parameterized.TestCase):
     """Tests path resolution inside and outside bazel runfiles."""
     with mock.patch.dict(os.environ, env, clear=True):
       self.assertEqual(data_utils.resolve_workspace_dir(path), expected)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='experiment_path',
+          path='/workspace/experiments/housing_exp/20261014_120000',
+          expected='housing_exp/20261014_120000',
+      ),
+      dict(
+          testcase_name='nested_task_path',
+          path='/workspace/repo/tasks/template/exp/run_2',
+          expected='exp/run_2',
+      ),
+      dict(
+          testcase_name='single_segment',
+          path='run_99',
+          expected='run_99',
+      ),
+  )
+  def test_sanitize_path(self, path, expected):
+    """Tests dirname/basename path sanitization."""
+    self.assertEqual(data_utils.sanitize_path(path), expected)
 
   @parameterized.named_parameters(
       dict(
@@ -375,6 +449,25 @@ class DataUtilsTest(parameterized.TestCase):
 
     res = data_utils.load_student_results(run_dir, students=students)
     self.assertEqual(res, expected)
+
+  def test_load_student_results_oserror_handling(self):
+    """Tests graceful fallback when glob or CSV reading raises OSError."""
+    run_dir = os.path.join(self.test_dir, 'oserror_run')
+    os.makedirs(run_dir, exist_ok=True)
+    with open(os.path.join(run_dir, 'alice.csv'), 'w') as f:
+      f.write('cycle,score\n0,10\n')
+
+    with mock.patch.object(
+        data_utils, 'read_dict_from_csv', side_effect=OSError('read failed')
+    ):
+      self.assertEqual(data_utils.load_student_results(run_dir), {})
+
+    mock_path = mock.MagicMock()
+    mock_path.__truediv__.return_value.is_dir.return_value = False
+    mock_path.exists.return_value = True
+    mock_path.glob.side_effect = OSError('glob failed')
+    with mock.patch.object(data_utils.epath, 'Path', return_value=mock_path):
+      self.assertEqual(data_utils.load_student_results(run_dir), {})
 
   @parameterized.named_parameters(
       dict(

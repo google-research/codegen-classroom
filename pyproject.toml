@@ -31,6 +31,7 @@ dependencies = [
     "absl-py",
     "python-dotenv",
     "pillow",
+    "pyarrow",
 ]
 
 [project.optional-dependencies]
@@ -66,3 +67,10 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/google-research/codegen-classroom"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["codegen_classroom*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.tsv", "*.csv", "*.md", "*.ipynb", "*.txt"]

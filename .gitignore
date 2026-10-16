@@ -6,4 +6,8 @@
 .pytest_cache/
 .venv/
 __pycache__/
+artifacts/
+cache/
 data/
+experiments/
+models/

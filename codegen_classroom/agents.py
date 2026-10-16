@@ -186,7 +186,7 @@ class GeminiAgent:
 
     response = self.client.models.generate_content(
         model=self.model_name,
-        contents=contents,
+        contents=contents,  # pyrefly: ignore[bad-argument-type]
         config=genai.types.GenerateContentConfig(
             system_instruction=self.system_instruction,
             max_output_tokens=self.max_output_tokens,
@@ -586,9 +586,9 @@ class SolutionAnalysisAgent(GeminiAgent):
     """Analyzes the best student model solution.
 
     Args:
-        student_name: The name of the winning student.
-        best_code: Python code of the winning solution.
-        best_plan: Plan/reasoning of the winning solution.
+        student_name: The name of the best student.
+        best_code: Python code of the best solution.
+        best_plan: Plan/reasoning of the best solution.
         best_test_metrics: Evaluated metrics dict on the unseen test set.
         best_val_metrics: Validation/learning metrics dict (OOF baseline).
         student_instructions: Main student system instructions.

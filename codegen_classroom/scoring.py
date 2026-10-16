@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Scoring functions, configurations, and type definitions for code-generating agents."""
+"""Scoring functions, configurations, and type definitions for Codegen agents."""
 
 from __future__ import annotations
 

@@ -25,7 +25,9 @@ from etils import epath
 
 # Default model used for standard agents and generic tasks.
 # See available models at: https://ai.google.dev/gemini-api/docs/models
-DEFAULT_MODEL = "gemini-3.5-flash"
+DEFAULT_MODEL = os.environ.get(
+    "CODEGEN_DEFAULT_MODEL", os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+)
 
 # Default sampling temperature for LLM code generation.
 DEFAULT_TEMPERATURE = 0.5
@@ -75,7 +77,10 @@ def load_env(env_path: str | epath.PathLike | None = None) -> None:
   if env_path is not None:
     dotenv.load_dotenv(env_path)
   dotenv.load_dotenv(epath.Path(__file__).resolve().parent / ".env")
-  dotenv.load_dotenv()
+  dotenv.load_dotenv(
+      epath.Path(os.getcwd()) / "third_party/py/codegen_classroom/.env"
+  )
+  dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))
   if not os.environ.get("GEMINI_API_KEY"):
     try:
       userdata = importlib.import_module("google.colab.userdata")

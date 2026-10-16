@@ -162,25 +162,58 @@ def config_to_serializable_dict(cfg: Any) -> Mapping[str, Any]:
   return dataclasses.asdict(cfg, dict_factory=_dataclass_factory)
 
 
+def sanitize_path(path: epath.PathLike | str | None) -> str:
+  """Sanitizes a filesystem path into `<parent>/<basename>`."""
+  if not path or (isinstance(path, float) and pd.isna(path)):
+    return ""
+  norm = os.path.normpath(str(path).strip())
+  base = os.path.basename(norm)
+  parent = os.path.basename(os.path.dirname(norm))
+  return f"{parent}/{base}" if parent else base
+
+
+def round_leaderboard_metrics(
+    df: pd.DataFrame, precision: int = 3
+) -> pd.DataFrame:
+  """Rounds float metric columns in a leaderboard DataFrame to precision decimal places."""
+  return df.round(precision)
+
+
 def submit_results_to_local_leaderboard(
-    leaderboard_path: str, results_df_row: pd.DataFrame
+    leaderboard_path: str,
+    results_df_row: pd.DataFrame,
+    precision: int = 3,
 ):
   """Appends results to a local TSV leaderboard file."""
   if not leaderboard_path.endswith(".tsv"):
     logger.warning("Leaderboard path does not end with .tsv.")
+
+  results_df_row = results_df_row.copy()
+  for col in ("run_dir", "solution_dir"):
+    if col in results_df_row.columns:
+      results_df_row[col] = results_df_row[col].apply(
+          lambda p: sanitize_path(p) if pd.notna(p) and p else p
+      )
 
   path = epath.Path(leaderboard_path)
 
   if path.exists():
     with path.open("r") as f:
       leaderboard_df = pd.read_csv(f, sep="\t")
-    # Align columns by name, filling missing fields in older rows with NaN
-    # so historical runs are preserved when new analysis fields are added.
-    leaderboard_df = pd.concat(
-        [leaderboard_df, results_df_row], ignore_index=True
-    )
+    if leaderboard_df.empty:
+      leaderboard_df = results_df_row
+    else:
+      # Align columns by name, filling missing fields in older rows with NaN
+      # so historical runs are preserved when new analysis fields are added.
+      leaderboard_df = pd.concat(
+          [leaderboard_df, results_df_row], ignore_index=True
+      )
   else:
     leaderboard_df = results_df_row
+
+  leaderboard_df = round_leaderboard_metrics(
+      leaderboard_df, precision=precision
+  )
 
   path.parent.mkdir(parents=True, exist_ok=True)
   with path.open("w") as f:

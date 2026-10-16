@@ -123,10 +123,15 @@ class ClassroomIntegrationTest(absltest.TestCase):
         include_plots=True,
     )
     self.assertNotEmpty(report_sections)
+    self.assertEqual(report_sections[-1].title, "Student Instructions")
     reporting.write_report(
         epath.Path(self.run_dir), report_sections, precision=3
     )
-    self.assertTrue(os.path.exists(os.path.join(self.run_dir, "report.md")))
+    report_md = os.path.join(self.run_dir, "report.md")
+    self.assertTrue(os.path.exists(report_md))
+    with open(report_md, "r", encoding="utf-8") as f:
+      report_text = f.read()
+    self.assertIn("## Student Instructions", report_text)
 
     # 6. Local leaderboard submission and loading
     leaderboard_tsv = os.path.join(self.tmpdir, "leaderboard.tsv")
