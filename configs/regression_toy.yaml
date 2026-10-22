@@ -1,0 +1,25 @@
+# Smoke test: one vLLM student, one cycle, toy regression (no PyHealth data).
+#
+#   python scripts/run_classroom.py --config configs/regression_toy.yaml
+
+run:
+  output_dir: runs
+  num_cycles: 1
+  final_strategies: [best]
+  analyze_best: false
+
+llm:
+  backend: vllm
+  base_url: http://localhost:8000/v1
+  models: [Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8]
+  max_output_tokens: 4096
+  max_code_generation_retries: 2
+  retry_sleep_seconds: 5
+
+classroom:
+  code_execution_max_retries: 1
+  seed_solution: none
+
+task:
+  type: toy_regression
+  n_samples: 300

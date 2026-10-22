@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Gemini agents and their configs: Student and Solution Analysis."""
+"""LLM agents and their configs: Student and Solution Analysis."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ import time
 from typing import Any
 
 from codegen_classroom import agent_config
+from codegen_classroom import backends
 from codegen_classroom import data_utils
-from google import genai
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -77,10 +77,17 @@ class GenerationError(Exception):
 
 @dataclasses.dataclass
 class AgentConfig:
-  """Configuration for a Gemini/Gemma agent."""
+  """Configuration for an LLM agent (Gemini API or OpenAI-compatible server)."""
 
   name: str
   api_key: str | None = dataclasses.field(default=None, repr=False)
+  # "gemini" or "openai_compat" (aliases: "openai", "vllm").
+  backend: str = agent_config.DEFAULT_BACKEND
+  # Server URL for OpenAI-compatible backends, e.g. http://localhost:8000/v1.
+  base_url: str | None = None
+  # Extra request fields for OpenAI-compatible backends (e.g. top_p,
+  # chat_template_kwargs).
+  extra_body: Mapping[str, Any] | None = None
   system_instruction: str = ""
   model_name: str = agent_config.DEFAULT_MODEL
   temperature: float = agent_config.DEFAULT_TEMPERATURE
@@ -123,20 +130,18 @@ class StudentCycleResult:
     return flat_dict
 
 
-class GeminiAgent:
-  """Base class for the Student and Solution Analysis Gemini agents."""
+class LLMAgent:
+  """Base class for the Student and Solution Analysis LLM agents."""
 
   def __init__(self, config: AgentConfig, run_base_dir: str):
     self.config = config
     self.name = self.config.name
     self.run_base_dir = run_base_dir
-    api_key = self.config.api_key or os.environ.get("GEMINI_API_KEY")
-    self.client = genai.Client(
-        api_key=api_key,
-        http_options=genai.types.HttpOptions(
-            timeout=self.config.http_timeout_ms
-        ),
-    )
+    if backends.is_openai_compat(self.config.backend):
+      self.config.base_url = (
+          self.config.base_url or agent_config.DEFAULT_VLLM_BASE_URL
+      )
+    self.backend = backends.make_backend(self.config)
     self.system_instruction = self.config.system_instruction
     self.model_name = self.config.model_name
     self.temperature = self.config.temperature
@@ -170,31 +175,14 @@ class GeminiAgent:
     Returns:
         The generated response text, or an empty string if generation failed.
     """
-    contents = [
-        genai.types.Content(
-            role=role,
-            parts=[genai.types.Part.from_text(text=text)],
-        )
-        for role, text in self.history
-    ]
-    contents.append(
-        genai.types.Content(
-            role="user",
-            parts=[genai.types.Part.from_text(text=prompt)],
-        )
+    response_text = self.backend.generate(
+        self.history,
+        prompt,
+        system_instruction=self.system_instruction,
+        temperature=self.temperature,
+        max_output_tokens=self.max_output_tokens,
+        json_mode=self.config.response_mime_type == "application/json",
     )
-
-    response = self.client.models.generate_content(
-        model=self.model_name,
-        contents=contents,
-        config=genai.types.GenerateContentConfig(
-            system_instruction=self.system_instruction,
-            max_output_tokens=self.max_output_tokens,
-            temperature=self.temperature,
-            response_mime_type=self.config.response_mime_type,
-        ),
-    )
-    response_text = (response.text or "") if response else ""
 
     if response_text.strip():
       self.history.append(("user", prompt))
@@ -202,8 +190,12 @@ class GeminiAgent:
     return response_text
 
 
+# Backwards-compatible alias for the upstream class name.
+GeminiAgent = LLMAgent
+
+
 @functools.total_ordering
-class StudentAgent(GeminiAgent):
+class StudentAgent(LLMAgent):
   """Student agent that generates solutions and learns from feedback."""
 
   def __init__(
@@ -219,7 +211,10 @@ class StudentAgent(GeminiAgent):
         run_base_dir: The base directory for the current run.
         seed_solution: Initial model response (solution) to start with.
     """
-    print(f"Initializing Student Agent ({config.name}) using Gemini...")
+    print(
+        f"Initializing Student Agent ({config.name}) using"
+        f" {config.backend}:{config.model_name}..."
+    )
     super().__init__(config, run_base_dir)
     self.current_solution: str = seed_solution or ""  # Full model output.
     self.student_dir: str = os.path.join(self.run_base_dir, "students")
@@ -310,11 +305,7 @@ class StudentAgent(GeminiAgent):
         solution = super().generate(prompt)
         self.current_solution = solution
         return solution
-      except (
-          genai.errors.ServerError,
-          genai.errors.ClientError,
-          genai.errors.httpx.HTTPError,
-      ) as e:
+      except self.backend.retryable_exceptions as e:
         last_exception = e
         error_type = type(e).__name__
         if attempt < self.config.max_code_generation_retries - 1:
@@ -338,6 +329,9 @@ class StudentAgent(GeminiAgent):
               e,
               exc_info=True,
           )
+      except self.backend.fatal_exceptions as e:
+        logger.error("[%s] Non-retryable LLM API error: %s", self.name, e)
+        raise GenerationError(f"Non-retryable LLM API error: {e}") from e
     raise GenerationError(
         "Failed to generate solution after"
         f" {self.config.max_code_generation_retries} attempts due to API"
@@ -522,7 +516,7 @@ class StudentAgent(GeminiAgent):
     self.generate_solution(prompt + "\n" + final_mutation_prompt)
 
 
-class SolutionAnalysisAgent(GeminiAgent):
+class SolutionAnalysisAgent(LLMAgent):
   """Analyzes the best student model solution using an LLM agent.
 
   Extracts metadata (tags, description, insights, etc.), writes a JSON
@@ -666,11 +660,7 @@ Please provide a deep dive into how this specific student approached {task_descr
             " requested schema."
         )
 
-      except (
-          genai.errors.ServerError,
-          genai.errors.ClientError,
-          genai.errors.httpx.HTTPError,
-      ) as e:
+      except self.backend.retryable_exceptions as e:
         last_exception = e
         error_type = type(e).__name__
         if attempt < max_retries - 1:
@@ -692,6 +682,8 @@ Please provide a deep dive into how this specific student approached {task_descr
               e,
               exc_info=True,
           )
+      except self.backend.fatal_exceptions as e:
+        raise ValueError(f"Non-retryable LLM API error: {e}") from e
 
     raise ValueError(
         "Failed to obtain and parse valid JSON from model."

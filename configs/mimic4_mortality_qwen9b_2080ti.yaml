@@ -1,0 +1,53 @@
+# MIMIC-IV mortality (cached task) with Qwen3.5-9B AWQ students on RTX 2080 Ti
+# (sunlab-serv-02, 8x 11 GB). The LLM uses GPUs 0-1 (TP=2), students train on
+# the rest.
+#
+#   PATH=~/miniconda3/envs/vllm/bin:$PATH MODEL=QuantTrio/Qwen3.5-9B-AWQ \
+#     GPUS=0,1 TP=2 MAX_MODEL_LEN=32768 \
+#     EXTRA_ARGS='--dtype half --max-num-seqs 16 --limit-mm-per-prompt {"image":0,"video":0}' \
+#     bash scripts/serve_vllm.sh
+#   python scripts/run_classroom.py --config configs/mimic4_mortality_qwen9b_2080ti.yaml
+#
+# Turing notes: no bf16 (--dtype half), and the default max-num-seqs (256)
+# exceeds the linear-attention cache blocks, so lower it. Startup takes ~6 min
+# (warmup ~5 min). The KV cache holds ~155k tokens, so a 32k context fits; at
+# 16k, within-cycle retry history overflowed the context.
+
+run:
+  output_dir: runs
+  num_cycles: 2
+  final_strategies: [best]
+  leaderboard_path: runs/leaderboard.tsv
+
+llm:
+  backend: vllm
+  base_url: http://localhost:8000/v1
+  models:
+    - QuantTrio/Qwen3.5-9B-AWQ
+    - QuantTrio/Qwen3.5-9B-AWQ
+  temperature: 0.7
+  max_output_tokens: 4096
+  retry_sleep_seconds: 10
+  # Thinking off: reasoning plus the ~5k-token prompt and within-cycle retry
+  # history can still overflow the context.
+  extra_body: {chat_template_kwargs: {enable_thinking: false}}
+
+classroom:
+  early_stopping_patience: 2
+  max_mutation_count: 1
+  mutation_strategies: [self_best_code, best_peer_crossover]
+  code_execution_max_retries: 2
+  seed_solution: none   # Make both students write their own first solution.
+
+task:
+  type: pyhealth
+  env: mimic4_mortality
+  gpus: [2, 3]
+  jobs_per_gpu: 1
+  env_cache_dir: runs/envs/mimic4_mortality_cached
+  overrides:
+    sample_dataset_path: /shared/eng/pyhealth_agent/cache/b77effea-2e99-5b1b-90c3-0fa6d2540af1/tasks/MortalityPredictionMIMIC4_187a839c-4f67-585a-bbb3-355429e27594/samples_cdbbc602-34e2-5a41-8643-4c76b08829f6.ld
+    max_learning_train_samples: 20000
+    learning_timeout_seconds: 900
+    final_timeout_seconds: 3600
+    epochs_hint: 5

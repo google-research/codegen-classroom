@@ -1,0 +1,45 @@
+# MIMIC-IV in-hospital mortality with students served by a local vLLM server.
+#
+#   bash scripts/serve_vllm.sh            # in the `vllm` env, GPU 0
+#   python scripts/run_classroom.py --config configs/mimic4_mortality_vllm.yaml
+#
+# GPU layout (3x A6000): GPU 0 serves the LLM, GPUs 1-2 train student models.
+
+run:
+  output_dir: /shared/eng/pyhealth_agent/codegen_runs
+  num_cycles: 5
+  final_strategies: [first, last, best]
+  leaderboard_path: /shared/eng/pyhealth_agent/codegen_runs/leaderboard.tsv
+
+llm:
+  backend: vllm
+  base_url: http://localhost:8000/v1
+  # One student per entry. Repeating a model gives independent students.
+  models:
+    - Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+    - Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+    - Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+    - Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+  temperature: 0.8
+  max_output_tokens: 16384
+  retry_sleep_seconds: 10
+  # extra_body: {top_p: 0.95}
+
+classroom:
+  early_stopping_patience: 2
+  max_mutation_count: 2
+  mutation_strategies: [self_best_code, best_peer_crossover]
+  code_execution_max_retries: 2
+  seed_solution: first   # student 1 starts from the PyHealth RNN baseline
+
+task:
+  type: pyhealth
+  env: mimic4_mortality
+  gpus: [1, 2]
+  jobs_per_gpu: 1
+  overrides:
+    max_learning_train_samples: 20000
+    learning_timeout_seconds: 1800
+    final_timeout_seconds: 7200
+    epochs_hint: 5
+    # dataset_kwargs: {dev: true}   # small MIMIC-IV subset for quick runs

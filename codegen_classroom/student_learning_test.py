@@ -46,9 +46,9 @@ class StudentLearningTestBase(parameterized.TestCase):
     super().setUp()
     self.base_dir = self.create_tempdir().full_path
 
-    # Mock genai Client for agents
-    self.mock_genai_client = self.enter_context(
-        mock.patch.object(agents, 'genai', autospec=True)
+    # Mock the LLM backend for agents
+    self.mock_make_backend = self.enter_context(
+        mock.patch.object(agents.backends, 'make_backend', autospec=True)
     )
 
     # Common data

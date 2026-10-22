@@ -16,12 +16,38 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 
 import dotenv
 from etils import epath
 
+
+def load_env(env_path: str | epath.PathLike | None = None) -> None:
+  """Loads API keys and settings from .env files into os.environ."""
+  if env_path is not None:
+    dotenv.load_dotenv(env_path)
+  dotenv.load_dotenv(epath.Path(__file__).resolve().parent / ".env")
+  dotenv.load_dotenv()
+
+
+# Load .env before reading environment-driven defaults below.
+load_env()
+
+# Default LLM backend: "gemini" (Gemini API) or "openai_compat" (a local vLLM
+# server or any other OpenAI-compatible endpoint).
+DEFAULT_BACKEND = os.environ.get("CODEGEN_BACKEND", "gemini")
+
+# Default base URL of the OpenAI-compatible (vLLM) server.
+DEFAULT_VLLM_BASE_URL = os.environ.get(
+    "VLLM_BASE_URL", "http://localhost:8000/v1"
+)
+
+# Example open-weight models to serve with vLLM. The served model name must
+# match what `vllm serve` was started with (see scripts/serve_vllm.sh).
+DEFAULT_VLLM_MODELS = (
+    "unsloth/Qwen3.8-27B-unsloth-bnb-4bit",
+    "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8",
+)
 
 # Default model used for standard agents and generic tasks.
 # See available models at: https://ai.google.dev/gemini-api/docs/models
@@ -69,21 +95,3 @@ DEFAULT_LATEST_MODELS = (
 # Combined tuple of default models used when spawning a classroom of students.
 DEFAULT_STUDENT_MODELS = DEFAULT_GEMMA_MODELS + DEFAULT_GEMINI_MODELS
 
-
-def load_env(env_path: str | epath.PathLike | None = None) -> None:
-  """Loads GEMINI_API_KEY from package .env or Colab userdata into os.environ."""
-  if env_path is not None:
-    dotenv.load_dotenv(env_path)
-  dotenv.load_dotenv(epath.Path(__file__).resolve().parent / ".env")
-  dotenv.load_dotenv()
-  if not os.environ.get("GEMINI_API_KEY"):
-    try:
-      userdata = importlib.import_module("google.colab.userdata")
-
-      if key := userdata.get("GEMINI_API_KEY"):
-        os.environ["GEMINI_API_KEY"] = key
-    except Exception:  # pylint: disable=broad-exception-caught
-      pass
-
-
-load_env()

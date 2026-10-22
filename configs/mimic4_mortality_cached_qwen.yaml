@@ -1,0 +1,55 @@
+# MIMIC-IV mortality on an existing PyHealth task cache, students served by the
+# 4-bit Qwen3.8-27B through vLLM.
+#
+#   # vllm env (see scripts/serve_vllm.sh); the bnb-4bit model is ~21 GB on disk
+#   MODEL=unsloth/Qwen3.8-27B-unsloth-bnb-4bit GPUS=<free gpu> \
+#       bash scripts/serve_vllm.sh
+#   # PyHealthAgent env
+#   python scripts/run_classroom.py --config configs/mimic4_mortality_cached_qwen.yaml
+#
+# Validated without the LLM (seed solution + BaseModel template) on 2026-10-16:
+# final test AUROC 0.78 / AUPRC 0.088 for the RNN baseline.
+
+run:
+  output_dir: runs
+  num_cycles: 4
+  final_strategies: [first, last, best]
+  leaderboard_path: runs/leaderboard.tsv
+
+llm:
+  backend: vllm
+  base_url: http://localhost:8000/v1
+  models:
+    - unsloth/Qwen3.8-27B-unsloth-bnb-4bit
+    - unsloth/Qwen3.8-27B-unsloth-bnb-4bit
+    - unsloth/Qwen3.8-27B-unsloth-bnb-4bit
+  temperature: 0.7
+  max_output_tokens: 8192
+  retry_sleep_seconds: 10
+  # Qwen3.x thinks by default; <think> blocks are stripped from responses but
+  # count against max_output_tokens. Disable to save tokens:
+  # extra_body: {chat_template_kwargs: {enable_thinking: false}}
+
+classroom:
+  early_stopping_patience: 2
+  max_mutation_count: 1
+  mutation_strategies: [self_best_code, best_peer_crossover]
+  code_execution_max_retries: 2
+  seed_solution: first
+
+task:
+  type: pyhealth
+  env: mimic4_mortality
+  # Student training GPUs; each A6000 here has only ~7-8 GB free next to the
+  # resident SGLang servers, enough for one small EHR model per GPU.
+  gpus: [6, 7]
+  jobs_per_gpu: 1
+  env_cache_dir: runs/envs/mimic4_mortality_cached
+  overrides:
+    # Reuse the cached MortalityPredictionMIMIC4 SampleDataset (128,236 visits,
+    # 57,701 patients; inputs: conditions, procedures, drugs).
+    sample_dataset_path: /shared/eng/pyhealth_agent/cache/b77effea-2e99-5b1b-90c3-0fa6d2540af1/tasks/MortalityPredictionMIMIC4_187a839c-4f67-585a-bbb3-355429e27594/samples_cdbbc602-34e2-5a41-8643-4c76b08829f6.ld
+    max_learning_train_samples: 20000
+    learning_timeout_seconds: 900
+    final_timeout_seconds: 3600
+    epochs_hint: 5

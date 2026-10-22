@@ -29,6 +29,7 @@ mean_squared_error = sklearn.metrics.mean_squared_error
 r2_score = sklearn.metrics.r2_score
 accuracy_score = sklearn.metrics.accuracy_score
 balanced_accuracy_score = sklearn.metrics.balanced_accuracy_score
+cohen_kappa_score = sklearn.metrics.cohen_kappa_score
 
 
 def _correlation_compute(
@@ -346,6 +347,13 @@ ALL_METRICS_CONFIG: dict[str, Metric] = {
         description='Accuracy',
         higher_is_better=True,
         normalize=None,  # Range [0, 1]. Non-negative by definition.
+    ),
+    'cohen_kappa': Metric(
+        name='cohen_kappa',
+        func=cohen_kappa_score,
+        description="Cohen's Kappa",
+        higher_is_better=True,
+        normalize=clip_negative,  # Range [-1, 1]; below chance clips to 0.
     ),
     'balanced_accuracy': Metric(
         name='balanced_accuracy',

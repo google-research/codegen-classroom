@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+import contextlib
 import io
 import linecache
 import multiprocessing
@@ -24,6 +25,7 @@ import os
 import queue
 import re
 import signal
+import subprocess
 import sys
 import time
 from typing import Any
@@ -152,11 +154,10 @@ def _execute_target(
 ):
   """Target function to run in a separate process."""
 
-  # Prevent child from receiving SIGINT and dumping tracebacks onto Colab.
+  # Prevent child from receiving SIGINT and dumping tracebacks.
   signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-  # Redirect stdout/stderr to prevent concurrent writes to Colab ZMQ sockets,
-  # which instantly crashes the Colab kernel.
+  # Redirect stdout/stderr so concurrent children do not interleave output.
   sys.stdout = io.StringIO()
   sys.stderr = io.StringIO()
 
@@ -343,3 +344,126 @@ def execute_code(
         except ProcessLookupError:
           pass
         p.join()
+
+
+# Maximum characters of child stderr included in an ExecutionError message.
+MAX_SUBPROCESS_ERROR_CHARS = 8000
+
+
+class GpuPool:
+  """Thread-safe pool of GPU slots shared by concurrently executing students.
+
+  Each device contributes `jobs_per_gpu` slots. `acquire()` blocks until a slot
+  is free and yields the device id to expose via CUDA_VISIBLE_DEVICES, or None
+  when the pool has no devices (CPU-only execution).
+  """
+
+  def __init__(
+      self, devices: Sequence[int | str] | None = None, jobs_per_gpu: int = 1
+  ):
+    if jobs_per_gpu < 1:
+      raise ValueError("jobs_per_gpu must be >= 1.")
+    self.devices = [str(d) for d in (devices or [])]
+    self._slots: queue.Queue[str] = queue.Queue()
+    for _ in range(jobs_per_gpu):
+      for device in self.devices:
+        self._slots.put(device)
+
+  @contextlib.contextmanager
+  def acquire(self) -> Iterator[str | None]:
+    if not self.devices:
+      yield None
+      return
+    device = self._slots.get()
+    try:
+      yield device
+    finally:
+      self._slots.put(device)
+
+
+def _kill_process_group(proc: subprocess.Popen[Any]) -> None:
+  try:
+    os.killpg(proc.pid, signal.SIGKILL)
+  except (ProcessLookupError, PermissionError):
+    pass
+  try:
+    proc.wait(timeout=5.0)
+  except subprocess.TimeoutExpired:
+    pass
+
+
+def execute_code_subprocess(
+    code: str,
+    command: Sequence[str],
+    workdir: str,
+    timeout_seconds: float | None = None,
+    env_vars: Mapping[str, str] | None = None,
+    code_filename: str = "solution.py",
+) -> tuple[str, float]:
+  """Writes `code` to `workdir` and runs `command` there in a new process group.
+
+  Unlike `execute_code`, nothing is forked from the (multithreaded) parent: the
+  command starts a fresh interpreter, which is safe for CUDA and lets the
+  child pick its GPU via CUDA_VISIBLE_DEVICES. The command is responsible for
+  importing `code_filename` and writing its outputs into `workdir`.
+
+  Args:
+      code: The Python code to write to `workdir/code_filename`.
+      command: The command to run, e.g. [sys.executable, "-m", "pkg.runner",
+        ...].
+      workdir: Directory for the code file, outputs and stdout/stderr logs.
+      timeout_seconds: Optional wall-clock limit; the whole process group is
+        killed when exceeded.
+      env_vars: Extra environment variables for the child.
+      code_filename: Name of the file the code is written to.
+
+  Returns:
+      A tuple of (stdout text, execution time in seconds).
+
+  Raises:
+      ExecutionError: If the process exits with a non-zero status. The message
+        contains the tail of stderr (including any traceback).
+      ExecutionTimeoutError: If the process exceeds `timeout_seconds`.
+  """
+  os.makedirs(workdir, exist_ok=True)
+  with open(os.path.join(workdir, code_filename), "w") as f:
+    f.write(code)
+  stdout_path = os.path.join(workdir, "stdout.log")
+  stderr_path = os.path.join(workdir, "stderr.log")
+  env = dict(os.environ)
+  env.update(env_vars or {})
+
+  start_time = time.time()
+  # Log files (not pipes) avoid deadlocks on large outputs.
+  with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
+    proc = subprocess.Popen(
+        list(command),
+        cwd=workdir,
+        stdout=out,
+        stderr=err,
+        stdin=subprocess.DEVNULL,
+        env=env,
+        start_new_session=True,  # Own process group, killed as a unit.
+    )
+    try:
+      returncode = proc.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as e:
+      _kill_process_group(proc)
+      raise ExecutionTimeoutError(
+          f"Code execution timed out after {timeout_seconds} seconds."
+      ) from e
+    finally:
+      # Also covers KeyboardInterrupt and stray grandchildren (e.g. dataloader
+      # workers) left behind by a finished child.
+      _kill_process_group(proc)
+  exec_time = time.time() - start_time
+
+  with open(stdout_path) as f:
+    stdout_text = f.read()
+  if returncode != 0:
+    with open(stderr_path) as f:
+      stderr_text = f.read()[-MAX_SUBPROCESS_ERROR_CHARS:]
+    raise ExecutionError(
+        f"Process exited with status {returncode}.\n{stderr_text}"
+    )
+  return stdout_text, exec_time

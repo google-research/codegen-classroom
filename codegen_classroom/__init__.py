@@ -16,8 +16,10 @@
 
 from codegen_classroom import agent_config
 from codegen_classroom import agents
+from codegen_classroom import backends
 from codegen_classroom import code_execution
 from codegen_classroom import data_utils
+from codegen_classroom import environments
 from codegen_classroom import metrics
 from codegen_classroom import plotting
 from codegen_classroom import reporting
@@ -29,8 +31,10 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "agents",
+    "backends",
     "code_execution",
     "data_utils",
+    "environments",
     "agent_config",
     "metrics",
     "plotting",

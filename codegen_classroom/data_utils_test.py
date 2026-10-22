@@ -222,12 +222,16 @@ class DataUtilsTest(parameterized.TestCase):
     expected_dict.update(expected_mutations)
     self.assertEqual(s_dict, expected_dict)
 
-  @mock.patch('codegen_classroom.data_utils.genai')
-  def test_config_to_serializable_dict_with_model_entry(self, mock_genai):
-    """Tests conversion when config includes a ModelEntry."""
-    mock_entry = mock.MagicMock()
-    mock_entry.__str__.return_value = "MockModel(name='test_model')"
-    mock_genai.types.Model = type(mock_entry)  # Make isinstance work
+  def test_config_to_serializable_dict_with_model_entry(self):
+    """Tests conversion when config includes a google-genai Model entry."""
+
+    class Model:  # Stand-in for genai.types.Model.
+
+      def __str__(self):
+        return "MockModel(name='test_model')"
+
+    Model.__module__ = 'google.genai.types'
+    mock_entry = Model()
 
     cfg = AnotherConfig(
         name='with_model',

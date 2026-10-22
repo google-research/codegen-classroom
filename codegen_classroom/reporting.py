@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import re
-import sys
 from typing import Any
 import warnings
 
@@ -152,122 +151,36 @@ def suppress_common_warnings() -> None:
   )
 
 
-def is_colab() -> bool:
-  """Returns True if the code is running in a Google Colab notebook."""
-  return "google.colab" in sys.modules
-
-
-def is_notebook() -> bool:
-  """Returns True if running in a Jupyter-like notebook environment (including Colab)."""
-  if is_colab():
-    return True
-  try:
-    from IPython import get_ipython  # pylint: disable=g-import-not-at-top
-
-    shell_obj = get_ipython()
-    if not shell_obj:
-      return False
-    shell = shell_obj.__class__.__name__
-    if shell == "ZMQInteractiveShell":
-      return True
-    if shell == "TerminalInteractiveShell":
-      return False
-  except (NameError, AttributeError, ImportError):
-    pass
-  return False
-
-
 def render_markdown(text: str) -> None:
-  """Renders Markdown text in notebooks, or prints plain text in terminals."""
-  if is_notebook():
-    from IPython import display as ipython_display  # pylint: disable=g-import-not-at-top
-
-    ipython_display.display(ipython_display.Markdown(text))
-  else:
-    print(text)
+  """Prints Markdown text to the console."""
+  print(text)
 
 
 def render_code(code: str, language: str = "python") -> None:
   """Renders a fenced code block."""
-  fenced = f"```{language}\n{code}\n```"
-  if is_notebook():
-    from IPython import display as ipython_display  # pylint: disable=g-import-not-at-top
-
-    ipython_display.display(ipython_display.Markdown(fenced))
-  else:
-    print(fenced)
+  print(f"```{language}\n{code}\n```")
 
 
-def colorized_html_diff(text1: str, text2: str, dark_mode: bool = False) -> str:
-  """For Colab: generates a colorized HTML diff between two code texts."""
-  diff = difflib.ndiff(
-      text1.splitlines(keepends=True), text2.splitlines(keepends=True)
+def render_code_diff(old: str, new: str) -> None:
+  """Prints a unified diff between two code texts."""
+  diff = difflib.unified_diff(
+      old.splitlines(keepends=False),
+      new.splitlines(keepends=False),
+      lineterm="",
   )
-  result = []
-  add_color = "#223922" if dark_mode else "#d4fcdc"
-  del_color = "#451e1e" if dark_mode else "#ffe0e0"
-
-  for line in diff:
-    sign = line[0]
-    content = line[2:]
-    escaped = (
-        content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    )
-    if sign == " ":
-      result.append(f" {escaped}")
-    elif sign == "+":
-      result.append(
-          f"<span style='background-color: {add_color};'>+ {escaped}</span>"
-      )
-    elif sign == "-":
-      result.append(
-          f"<span style='background-color: {del_color};'>- {escaped}</span>"
-      )
-  return "".join(result)
-
-
-def render_code_diff(old: str, new: str, dark_mode: bool = False) -> None:
-  """Renders a code diff (colored HTML in notebooks, unified diff text in CLI)."""
-  if is_notebook():
-    from IPython import display as ipython_display  # pylint: disable=g-import-not-at-top
-
-    code_diff_html = colorized_html_diff(old, new, dark_mode=dark_mode)
-    ipython_display.display(
-        ipython_display.HTML(
-            f"<pre style='font-family: monospace;'>{code_diff_html}</pre>"
-        )
-    )
-  else:
-    diff = difflib.unified_diff(
-        old.splitlines(keepends=False),
-        new.splitlines(keepends=False),
-        lineterm="",
-    )
-    print("\n".join(diff))
+  print("\n".join(diff))
 
 
 def render_json(data: dict[str, Any]) -> None:
   """Renders JSON data."""
   json_str = json.dumps(data, indent=2)
-  if is_notebook():
-    from IPython import display as ipython_display  # pylint: disable=g-import-not-at-top
-
-    ipython_display.display(
-        ipython_display.Markdown(f"```json\n{json_str}\n```")
-    )
-  else:
-    print(f"```json\n{json_str}\n```")
+  print(f"```json\n{json_str}\n```")
 
 
 def render_dataframe(df: pd.DataFrame, precision: int | None = 3) -> None:
   """Renders a pandas DataFrame."""
   df_display = df.round(precision) if precision is not None else df
-  if is_notebook():
-    from IPython import display as ipython_display  # pylint: disable=g-import-not-at-top
-
-    ipython_display.display(df_display)
-  else:
-    print(df_display.to_string())
+  print(df_display.to_string())
 
 
 def render_leaderboard(path: str | epath.Path) -> None:
@@ -937,16 +850,13 @@ def build_student_report(
 
 def render_report(
     sections: list[ReportSection],
-    dark_mode: bool = False,
     precision: int = 3,
 ) -> None:
-  """Renders a report to the notebook or terminal."""
+  """Prints a report to the console (plots are only written by write_report)."""
   for sec in sections:
     if sec.title:
       heading = "#" * sec.level
       render_markdown(f"{heading} {sec.title}")
-      if sec.kind != "plot":
-        pass
     if sec.kind == "markdown":
       if sec.payload:
         render_markdown(str(sec.payload))
@@ -956,42 +866,14 @@ def render_report(
       render_code(str(sec.payload), language="text")
     elif sec.kind == "code_diff":
       old, new = sec.payload
-      render_code_diff(old, new, dark_mode=dark_mode)
+      render_code_diff(old, new)
     elif sec.kind == "dataframe":
       render_dataframe(sec.payload, precision=precision)
     elif sec.kind == "plot":
-      # In notebook, plot live. Headless, note it skip.
-      if is_notebook():
-        if sec.payload["type"] == "progress":
-          plotting.plot_progress(
-              sec.payload["data"],
-              metric_names=["overall_score"],
-              backend="plotly",
-              dark_mode=dark_mode,
-              show=True,
-          )
-        elif sec.payload["type"] == "final":
-          plotting.plot_final_test(
-              metrics=["overall_score"],
-              final_results_path=sec.payload["data"],
-              backend="plotly",
-              dark_mode=dark_mode,
-              show=True,
-          )
-      else:
-        print("(Plot skipped in terminal display; noted as saved)")
+      print("(Plot saved to the run directory by write_report.)")
     elif sec.kind == "keyvalue":
-      items = {
-          k: v for k, v in sec.payload.items() if not str(k).startswith("_")
-      }
-      if is_notebook():
-        bullets = "\n".join([
-            f"* **{k}:** {_format_cell_value(v, precision=precision)}"
-            for k, v in items.items()
-        ])
-        render_markdown(bullets)
-      else:
-        for k, v in items.items():
+      for k, v in sec.payload.items():
+        if not str(k).startswith("_"):
           print(f"{k}: {_format_cell_value(v, precision=precision)}")
 
 

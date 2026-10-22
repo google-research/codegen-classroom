@@ -1,0 +1,20 @@
+# Mixed classroom: local vLLM students plus a Gemini student (needs
+# GEMINI_API_KEY in .env and `pip install -e ".[gemini]"`).
+
+run:
+  output_dir: /shared/eng/pyhealth_agent/codegen_runs
+  num_cycles: 5
+
+llm:
+  backend: vllm
+  base_url: http://localhost:8000/v1
+  models:
+    - Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+    - Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+    - {backend: gemini, model: gemini-3.5-flash}
+  analysis_model: Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+
+task:
+  type: pyhealth
+  env: mimic4_mortality
+  gpus: [1, 2]

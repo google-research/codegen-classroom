@@ -23,7 +23,6 @@ import os
 from typing import Any
 
 from etils import epath
-from google import genai
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -153,7 +152,8 @@ def config_to_serializable_dict(cfg: Any) -> Mapping[str, Any]:
     """Custom dict factory for dataclasses.asdict to handle ModelEntry."""
 
     def convert_value(obj):
-      if hasattr(genai, "types") and isinstance(obj, genai.types.Model):
+      # google-genai model objects (e.g. genai.types.Model) are stringified.
+      if type(obj).__module__.startswith("google.genai"):
         return str(obj)
       return obj
 

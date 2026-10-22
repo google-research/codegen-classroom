@@ -1009,16 +1009,6 @@ class AgentConfigTest(parameterized.TestCase):
       agent_config.load_env(env_path=env_file.full_path)
       self.assertEqual(os.environ.get('GEMINI_API_KEY'), 'custom_path_key')
 
-  def test_load_env_from_colab_userdata(self):
-    mock_userdata = mock.Mock()
-    mock_userdata.get.return_value = 'colab_test_key'
-    with mock.patch.dict(os.environ, {}, clear=True):
-      with mock.patch.dict(
-          sys.modules, {'google.colab.userdata': mock_userdata}
-      ):
-        agent_config.load_env()
-        self.assertEqual(os.environ.get('GEMINI_API_KEY'), 'colab_test_key')
-
 
 if __name__ == '__main__':
   absltest.main()

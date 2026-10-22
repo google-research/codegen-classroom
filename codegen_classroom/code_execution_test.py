@@ -20,7 +20,9 @@ import os
 import queue
 import re
 import signal
+import sys
 import textwrap
+import threading
 import time
 from unittest import mock
 
@@ -736,6 +738,80 @@ class ExecuteCodeTest(parameterized.TestCase):
 
     self.assertEqual(result, 42)
     mock_kill.assert_called_with(12345, signal.SIGKILL)
+
+
+class ExecuteCodeSubprocessTest(absltest.TestCase):
+
+  def _run(self, code, timeout=None, env_vars=None):
+    workdir = self.create_tempdir().full_path
+    command = [sys.executable, 'solution.py']
+    return workdir, code_execution.execute_code_subprocess(
+        code, command, workdir, timeout_seconds=timeout, env_vars=env_vars
+    )
+
+  def test_success_returns_stdout_and_writes_files(self):
+    code = textwrap.dedent("""
+        import os
+        print('hello', os.environ['MY_VAR'])
+        open('out.txt', 'w').write('done')
+    """)
+    workdir, (stdout, exec_time) = self._run(code, env_vars={'MY_VAR': 'x'})
+    self.assertEqual(stdout.strip(), 'hello x')
+    self.assertGreater(exec_time, 0)
+    with open(os.path.join(workdir, 'out.txt')) as f:
+      self.assertEqual(f.read(), 'done')
+
+  def test_nonzero_exit_raises_with_traceback(self):
+    with self.assertRaisesRegex(ExecutionError, 'ZeroDivisionError'):
+      self._run('1 / 0')
+
+  def test_timeout_kills_process_group(self):
+    code = textwrap.dedent("""
+        import subprocess, sys, time
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+        open('child.pid', 'w').write(str(child.pid))
+        time.sleep(60)
+    """)
+    workdir = self.create_tempdir().full_path
+    start = time.time()
+    with self.assertRaises(ExecutionTimeoutError):
+      code_execution.execute_code_subprocess(
+          code, [sys.executable, 'solution.py'], workdir, timeout_seconds=2
+      )
+    self.assertLess(time.time() - start, 20)
+    with open(os.path.join(workdir, 'child.pid')) as f:
+      child_pid = int(f.read())
+    time.sleep(0.5)
+    with self.assertRaises(ProcessLookupError):
+      os.kill(child_pid, 0)
+
+
+class GpuPoolTest(absltest.TestCase):
+
+  def test_no_devices_yields_none(self):
+    pool = code_execution.GpuPool()
+    with pool.acquire() as device:
+      self.assertIsNone(device)
+
+  def test_slots_round_robin_and_block(self):
+    pool = code_execution.GpuPool([1, 2], jobs_per_gpu=1)
+    with pool.acquire() as d1, pool.acquire() as d2:
+      self.assertCountEqual([d1, d2], ['1', '2'])
+      acquired = threading.Event()
+
+      def _worker():
+        with pool.acquire():
+          acquired.set()
+
+      t = threading.Thread(target=_worker)
+      t.start()
+      self.assertFalse(acquired.wait(timeout=0.3))  # All slots taken.
+    t.join(timeout=5)
+    self.assertTrue(acquired.is_set())
+
+  def test_invalid_jobs_per_gpu(self):
+    with self.assertRaises(ValueError):
+      code_execution.GpuPool([0], jobs_per_gpu=0)
 
 
 if __name__ == '__main__':

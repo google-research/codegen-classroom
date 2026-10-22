@@ -22,6 +22,7 @@ import hashlib
 import logging
 import os
 import random
+import re
 import time
 import traceback
 from typing import Any
@@ -30,6 +31,7 @@ from codegen_classroom import agent_config
 from codegen_classroom import agents
 from codegen_classroom import code_execution
 from codegen_classroom import data_utils
+from codegen_classroom import environments
 from codegen_classroom import scoring
 import numpy as np
 import pandas as pd
@@ -362,6 +364,7 @@ def run_learning_cycle(
     metric_binary_threshold: float | None = None,
     verbose_logging: bool = False,
     render_feedback_as_md: bool = False,
+    env: environments.TaskEnvironment | None = None,
 ) -> agents.StudentCycleResult:
   """Runs a single learning cycle for a given student.
 
@@ -401,6 +404,9 @@ def run_learning_cycle(
         regression predictions to binary labels for classification metrics.
       verbose_logging: If True, log full code and other verbose details.
       render_feedback_as_md: If True, render execution feedback as markdown.
+      env: Optional TaskEnvironment that executes the code instead of the
+        DataFrame contract. When set, x/y data, auxiliary data, cv_splits and
+        validator are ignored.
 
   Returns:
       A StudentCycleResult object containing the results of the cycle.
@@ -476,7 +482,20 @@ def run_learning_cycle(
       )
 
       # Execute the extracted code over splits or single set
-      if cv_splits is not None:
+      if env is not None:
+        execution = env.execute(
+            extracted_code,
+            phase=environments.LEARNING,
+            label=f"{student.name}_cycle_{current_cycle}_attempt_{attempt}",
+            timeout_seconds=code_execution_timeout_seconds,
+        )
+        y_pred_df = execution.y_pred
+        execution_feedback = execution.execution_feedback
+        exec_time = execution.exec_time
+        scoring_y_val = execution.y_true
+        scoring_aux_val = execution.auxiliary
+
+      elif cv_splits is not None:
         logger.debug(
             "[%s] Executing code with %d CV splits (OOF)...",
             student.name,
@@ -677,6 +696,7 @@ def run_parallel_classroom_learning_cycle(
     metric_binary_threshold: float | None = None,
     verbose_logging: bool = False,
     render_feedback_as_md: bool = False,
+    env: environments.TaskEnvironment | None = None,
 ) -> ClassroomResults:
   """Runs the learning cycle for all students in the classroom in parallel.
 
@@ -711,23 +731,26 @@ def run_parallel_classroom_learning_cycle(
         regression predictions to binary labels for classification metrics.
       verbose_logging: If True, log full code and other verbose details.
       render_feedback_as_md: If True, render execution feedback as markdown.
+      env: Optional TaskEnvironment that executes student code (see
+        `run_learning_cycle`). DataFrame inputs may be None when set.
 
   Returns:
       A sequence of StudentCycleResult objects, one for each student.
   """
   if not current_classroom:
     return []
-  dataframe_inputs = {
-      "x_train": x_train,
-      "y_train": y_train,
-      "x_val": x_val,
-      "y_val": y_val,
-  }
-  if auxiliary_train_data is not None:
-    dataframe_inputs.update(auxiliary_train_data)
-  if auxiliary_val_data is not None:
-    dataframe_inputs.update(auxiliary_val_data)
-  _validate_dataframe_inputs(**dataframe_inputs)
+  if env is None:
+    dataframe_inputs = {
+        "x_train": x_train,
+        "y_train": y_train,
+        "x_val": x_val,
+        "y_val": y_val,
+    }
+    if auxiliary_train_data is not None:
+      dataframe_inputs.update(auxiliary_train_data)
+    if auxiliary_val_data is not None:
+      dataframe_inputs.update(auxiliary_val_data)
+    _validate_dataframe_inputs(**dataframe_inputs)
   parallel_run_args = [
       {
           "student": student,
@@ -757,6 +780,7 @@ def run_parallel_classroom_learning_cycle(
           "metric_binary_threshold": metric_binary_threshold,
           "verbose_logging": verbose_logging,
           "render_feedback_as_md": render_feedback_as_md,
+          "env": env,
       }
       for student in current_classroom
   ]
@@ -845,6 +869,7 @@ def run_final_evaluation(
     auxiliary_test_data: Mapping[str, pd.DataFrame] | None = None,
     validator: scoring.ValidatorFunction = scoring.execution_validator,
     cv_splits: Sequence[tuple[np.ndarray, np.ndarray]] | None = None,
+    env: environments.TaskEnvironment | None = None,
 ) -> tuple[Mapping[str, Any], Mapping[str, pd.DataFrame]]:
   """Runs the final evaluation for a single student on the fixed test set.
 
@@ -879,6 +904,10 @@ def run_final_evaluation(
       validator: Function to validate the output of the executed code.
       cv_splits: Optional sequence of tuples of indices (train_idx, val_idx) to
         evaluate OOF predictions in CV fashion.
+      env: Optional TaskEnvironment that executes the code on its held-out
+        split. When set, x/y data, auxiliary data, cv_splits and validator are
+        ignored, and the environment's own final timeout applies unless
+        enforce_timeout is set.
 
   Returns:
     A tuple containing:
@@ -963,7 +992,19 @@ def run_final_evaluation(
         )
 
       # Execute the extracted code.
-      if cv_splits is not None:
+      if env is not None:
+        execution = env.execute(
+            extracted_code,
+            phase=environments.FINAL,
+            label=f"{student_name}_{strategy}_final_eval",
+            timeout_seconds=effective_timeout,
+        )
+        y_pred_df = execution.y_pred
+        exec_time = execution.exec_time
+        y_test_scored = execution.y_true
+        aux_test_scored = execution.auxiliary
+
+      elif cv_splits is not None:
         y_pred_df, _, exec_time = _execute_with_cv_splits(
             extracted_code=extracted_code,
             target_fn_name=student_function_name,
@@ -1030,6 +1071,7 @@ def run_final_evaluation(
     except (
         code_execution.ExtractionError,
         code_execution.ExecutionError,
+        code_execution.ExecutionTimeoutError,
         scoring.ValidatorError,
         scoring.ScoreError,
         scoring.EvaluatorError,
@@ -1097,6 +1139,7 @@ def run_parallel_classroom_final_evaluation(
     final_results_path: str | None = None,
     predictions_dir: str | None = None,
     cv_splits: Sequence[tuple[np.ndarray, np.ndarray]] | None = None,
+    env: environments.TaskEnvironment | None = None,
 ) -> tuple[Sequence[Mapping[str, Any]], Mapping[str, pd.DataFrame]]:
   """Runs final evaluation for all students in parallel and saves results.
 
@@ -1128,6 +1171,8 @@ def run_parallel_classroom_final_evaluation(
         None, predictions are not saved.
       cv_splits: Optional sequence of tuples of indices (train_idx, val_idx) to
         evaluate OOF predictions in CV fashion.
+      env: Optional TaskEnvironment that executes student code (see
+        `run_final_evaluation`). DataFrame inputs may be None when set.
 
   Returns:
       A tuple containing:
@@ -1142,17 +1187,18 @@ def run_parallel_classroom_final_evaluation(
 
   if strategies is None:
     strategies = ["best"]
-  dataframe_inputs = {
-      "x_learning": x_learning,
-      "y_learning": y_learning,
-      "x_test_final": x_test_final,
-      "y_test_final": y_test_final,
-  }
-  if auxiliary_learning_data is not None:
-    dataframe_inputs.update(auxiliary_learning_data)
-  if auxiliary_test_data is not None:
-    dataframe_inputs.update(auxiliary_test_data)
-  _validate_dataframe_inputs(**dataframe_inputs)
+  if env is None:
+    dataframe_inputs = {
+        "x_learning": x_learning,
+        "y_learning": y_learning,
+        "x_test_final": x_test_final,
+        "y_test_final": y_test_final,
+    }
+    if auxiliary_learning_data is not None:
+      dataframe_inputs.update(auxiliary_learning_data)
+    if auxiliary_test_data is not None:
+      dataframe_inputs.update(auxiliary_test_data)
+    _validate_dataframe_inputs(**dataframe_inputs)
 
   logger.info(
       "Starting Final Evaluation for %d students (Strategies: %s)",
@@ -1178,6 +1224,7 @@ def run_parallel_classroom_final_evaluation(
         "validator": validator,
         "cv_splits": cv_splits,
         "metric_binary_threshold": metric_binary_threshold,
+        "env": env,
     })
 
   num_workers = num_workers if num_workers is not None else len(students)
@@ -1202,7 +1249,6 @@ def run_parallel_classroom_final_evaluation(
 
   # Save predictions if directory is provided
   if predictions_dir and all_predictions:
-    prediction_col = y_test_final.columns[0]
     data_utils.create_dir(predictions_dir)
     logger.info(
         "Saving %d Predictions to CSV in %s",
@@ -1214,8 +1260,9 @@ def run_parallel_classroom_final_evaluation(
       if y_pred_df is None or y_pred_df.empty:
         logger.warning("Skipping empty/None prediction for '%s'", pred_key)
         continue
-      y_pred_df = y_pred_df.set_index(x_test_final.index)
-      y_pred_df.columns = [prediction_col]
+      if env is None:
+        y_pred_df = y_pred_df.set_index(x_test_final.index)
+        y_pred_df.columns = [y_test_final.columns[0]]
       pred_path = os.path.join(predictions_dir, f"{pred_key}.csv")
       data_utils.save_dataframe_to_csv(y_pred_df, pred_path, index=True)
       logger.debug("Saved prediction for '%s' to: %s", pred_key, pred_path)
@@ -1319,33 +1366,49 @@ def get_best_solution_from_eval_results(
 def get_classroom_student_configs(
     system_instruction: str,
     api_key: str | None = None,
-    model_names: Sequence[str] | None = None,
+    model_names: Sequence[str | tuple[str, str]] | None = None,
     temperature: float = 1.0,
     max_output_tokens: int = 32768,
     max_code_generation_retries: int | None = None,
     retry_sleep_seconds: int | None = None,
+    backend: str | None = None,
+    base_url: str | None = None,
+    extra_body: Mapping[str, Any] | None = None,
 ) -> Sequence[agents.AgentConfig]:
   """Returns a sequence of student configurations for a classroom.
 
   Args:
       system_instruction: The base system instruction to use for each agent.
       api_key: The API key for the generative model service.
-      model_names: Optional sequence of model names to use.
+      model_names: Optional sequence of model names to use. Entries may also be
+        `(backend, model_name)` tuples to mix backends in one classroom (e.g.
+        `[("vllm", "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"), ("gemini",
+        "gemini-3.5-flash")]`).
       temperature: The default temperature for the models.
       max_output_tokens: The default maximum output tokens for the models.
       max_code_generation_retries: Optional maximum number of retries for code
         generation.
       retry_sleep_seconds: Optional sleep time in seconds between retries.
+      backend: Backend for plain-string `model_names` entries ("gemini" or
+        "openai_compat"/"vllm"). Defaults to `agent_config.DEFAULT_BACKEND`.
+      base_url: Server URL for OpenAI-compatible backends.
+      extra_body: Extra request fields for OpenAI-compatible backends.
 
   Returns:
       A sequence of agents.AgentConfig objects.
   """
   if model_names is None:
     model_names = agent_config.DEFAULT_STUDENT_MODELS
+  default_backend = backend or agent_config.DEFAULT_BACKEND
 
   student_cfgs = []
-  for i, model_name in enumerate(model_names):
-    clean_model_name = model_name.replace("-", "_")
+  for i, entry in enumerate(model_names):
+    if isinstance(entry, str):
+      student_backend, model_name = default_backend, entry
+    else:
+      student_backend, model_name = entry
+    # Student names are used in file paths, so keep them filesystem-safe.
+    clean_model_name = re.sub(r"[^A-Za-z0-9_.]", "_", model_name)
     student_name = f"student_{i+1}_{clean_model_name}"
     kwargs = {
         "name": student_name,
@@ -1354,6 +1417,9 @@ def get_classroom_student_configs(
         "max_output_tokens": max_output_tokens,
         "system_instruction": system_instruction,
         "model_name": model_name,
+        "backend": student_backend,
+        "base_url": base_url,
+        "extra_body": extra_body,
     }
     if max_code_generation_retries is not None:
       kwargs["max_code_generation_retries"] = max_code_generation_retries

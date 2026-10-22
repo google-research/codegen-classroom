@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codegen-classroom"
 version = "0.1.0"
-description = "A framework for iterative code generation for ML and data analysis tasks using parallel LLM agents in Colab."
+description = "A framework for iterative code generation for ML and data analysis tasks using parallel LLM agents."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
@@ -19,7 +19,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "google-genai",
     "httpx",
     "numpy",
     "pandas",
@@ -34,9 +33,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-notebook = [
-    "plotly",
-    "ipython",
+gemini = [
+    "google-genai",
+]
+openai = [
+    "openai>=1.40",
+]
+pyhealth = [
+    "pyhealth",
+    "torch",
+    "pyarrow",
+]
+cli = [
+    "pyyaml",
 ]
 torch = [
     "torch",
@@ -52,9 +61,44 @@ dev = [
     "pytest",
     "pytest-mock",
 ]
+# Exact versions of the classroom env used for the reported PyHealth results
+# (conda env `PyHealthAgent`, Python 3.12). PyHealth itself was an editable
+# install of evanfebrianto/PyHealth@c232681 (branch feat/ehrmamba, reports
+# 2.0.1); see README "Reproducing our results". Install with:
+#   pip install -e ".[repro]"
+repro = [
+    "torch==2.7.1",
+    "pydantic==2.11.10",  # pyhealth pins pydantic~=2.11.7
+    "pydantic-core==2.33.2",
+    "litdata==0.2.59",
+    "polars==1.35.2",
+    "pyarrow==22.0.0",
+    "numpy==2.2.6",
+    "pandas==2.3.3",
+    "scikit-learn==1.7.2",
+    "scipy==1.17.0",
+    "matplotlib==3.10.8",
+    "seaborn==0.13.2",
+    "absl-py==2.5.1",
+    "etils==1.14.0",
+    "httpx==0.28.1",
+    "python-dotenv==1.2.4",
+    "openai==3.31.0",
+    "google-genai==2.8.0",  # newest release compatible with pydantic 2.11
+    "pyyaml==6.0.3",
+    "pytest==9.1.1",
+]
+# The vLLM server must live in its OWN environment: vLLM 0.31 needs torch 2.13
+# (CUDA 13), which conflicts with PyHealth's torch 2.7.1. In a separate env:
+#   pip install "codegen-classroom[vllm-server]"   (or the two pins directly)
+vllm-server = [
+    "vllm==0.31.0",
+    "bitsandbytes==0.50.2",
+]
 all = [
-    "plotly",
-    "ipython",
+    "google-genai",
+    "openai>=1.40",
+    "pyyaml",
     "torch",
     "torchvision",
     "jax",
@@ -63,6 +107,10 @@ all = [
     "pytest-mock",
 ]
 
+
+[tool.setuptools.packages.find]
+# configs/ and scripts/ are not packages; only ship the library.
+include = ["codegen_classroom*"]
 
 [project.urls]
 Homepage = "https://github.com/google-research/codegen-classroom"

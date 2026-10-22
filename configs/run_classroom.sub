@@ -1,0 +1,22 @@
+# HTCondor submission for a classroom run (mirrors the repo-root htcondor.sub).
+#   condor_submit configs/run_classroom.sub CONFIG=configs/mimic4_mortality_vllm.yaml
+# The vLLM server must be reachable from the job (same machine or llm.base_url).
+CONFIG ?= configs/mimic4_mortality_vllm.yaml
+
+executable = /bin/bash
+arguments = "-c 'source ~/miniconda3/etc/profile.d/conda.sh && conda activate PyHealthAgent && python scripts/run_classroom.py --config $(CONFIG)'"
+initialdir = /home/johnwu3/projects/PyHealth_Branch_Testing/codegen-classroom-pyhealth
+getenv = True
+
+Requirements = (Machine == "sunlab-c02.cs.illinois.edu")
+
+output = logs/classroom.$(Cluster).$(Process).out
+error = logs/classroom.$(Cluster).$(Process).err
+log = logs/classroom.$(Cluster).$(Process).log
+
+universe = vanilla
+request_cpus = 16
+request_memory = 200GB
+request_gpus = 2
+
+queue
