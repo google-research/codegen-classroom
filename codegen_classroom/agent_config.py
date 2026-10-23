@@ -22,12 +22,36 @@ import os
 import dotenv
 from etils import epath
 
-
 # Default model used for standard agents and generic tasks.
 # See available models at: https://ai.google.dev/gemini-api/docs/models
 DEFAULT_MODEL = os.environ.get(
     "CODEGEN_DEFAULT_MODEL", os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 )
+
+# Default Gemini models available for student and analysis agents.
+DEFAULT_GEMINI_MODELS = (
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+    "gemini-3.5-flash-lite",
+    "gemini-4-argon",
+)
+
+# Default Gemma open-weight models available for student agents.
+DEFAULT_GEMMA_MODELS = (
+    "gemma-4-26b-a4b-it",
+    "gemma-4-31b-it",
+)
+
+# Floating latest-model endpoints (not recommended for reproducible runs).
+# See available models at: https://ai.google.dev/gemini-api/docs/models
+DEFAULT_LATEST_MODELS = (
+    "gemini-flash-lite-latest",
+    "gemini-flash-latest",
+    "gemini-pro-latest",
+)
+
+# Combined tuple of default models used when spawning a classroom of students.
+DEFAULT_STUDENT_MODELS = DEFAULT_GEMINI_MODELS + DEFAULT_GEMMA_MODELS
 
 # Default sampling temperature for LLM code generation.
 DEFAULT_TEMPERATURE = 0.5
@@ -47,38 +71,15 @@ DEFAULT_EXECUTION_TIMEOUT_SECONDS = 30
 # Default HTTP request timeout in milliseconds for GenAI API calls.
 DEFAULT_HTTP_TIMEOUT_MS = 300_000
 
-# Default Gemma open-weight models available for student agents.
-DEFAULT_GEMMA_MODELS = (
-    "gemma-4-31b-it",
-    "gemma-4-26b-a4b-it",
-)
-
-# Default Gemini models available for student and analysis agents.
-DEFAULT_GEMINI_MODELS = (
-    "gemini-3.5-flash-lite",
-    "gemini-3.5-flash",
-    "gemini-3.1-pro-preview",
-)
-
-# Floating latest-model endpoints (not recommended for reproducible runs).
-# See available models at: https://ai.google.dev/gemini-api/docs/models
-DEFAULT_LATEST_MODELS = (
-    "gemini-flash-lite-latest",
-    "gemini-flash-latest",
-    "gemini-pro-latest",
-)
-
-# Combined tuple of default models used when spawning a classroom of students.
-DEFAULT_STUDENT_MODELS = DEFAULT_GEMMA_MODELS + DEFAULT_GEMINI_MODELS
-
 
 def load_env(env_path: str | epath.PathLike | None = None) -> None:
   """Loads GEMINI_API_KEY from package .env or Colab userdata into os.environ."""
   if env_path is not None:
     dotenv.load_dotenv(env_path)
   dotenv.load_dotenv(epath.Path(__file__).resolve().parent / ".env")
+  workspace_root = os.environ.get("BUILD_WORKSPACE_DIRECTORY") or os.getcwd()
   dotenv.load_dotenv(
-      epath.Path(os.getcwd()) / "third_party/py/codegen_classroom/.env"
+      epath.Path(workspace_root) / "third_party/py/codegen_classroom/.env"
   )
   dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))
   if not os.environ.get("GEMINI_API_KEY"):

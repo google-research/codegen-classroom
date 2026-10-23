@@ -31,18 +31,19 @@ from codegen_classroom.tasks.template import data_loader
 # === 1. TASK CONFIGURATION (CUSTOMIZE: Update for your benchmark task) ===
 # ==============================================================================
 
+DEFAULT_STUDENT_MODELS: Sequence[str] = (
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+    "gemini-3.5-flash-lite",
+    "gemma-4-26b-a4b-it",
+    "gemma-4-31b-it",
+    "gemini-4-argon",
+)
+
 TASK_NAME = "template"
 TASK_TITLE = "Multi-Regime Thermal Load Regression (Template Task)"
 STUDENT_FUNCTION_NAME = "solution"
 VAL_SEED = 42
-
-DEFAULT_STUDENT_MODELS: Sequence[str] = (
-    "gemini-3.5-flash-lite",
-    "gemma-4-31b-it",
-    "gemma-4-26b-a4b-it",
-    "gemini-3.5-flash",
-    "gemini-3.1-pro-preview",
-)
 
 RUN_DEFAULTS = {
     "num_students": 3,
@@ -51,6 +52,7 @@ RUN_DEFAULTS = {
     "final_eval_timeout_s": 180,
     "patience": 2,
     "max_mutations": 2,
+    "max_output_tokens": 32768,
 }
 
 # CUSTOMIZE: Define metric weights matching `metrics.ALL_METRICS_CONFIG`.

@@ -123,7 +123,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_integer(
     "max_output_tokens",
-    16384,
+    RUN_DEFAULTS["max_output_tokens"],
     "Maximum output tokens for student LLM completions.",
 )
 flags.DEFINE_integer(

@@ -4,6 +4,8 @@
 
 ### using parallel LLM agents in Colab.
 
+**Authors:** [Jake](mailto:jakegarrison@google.com), [Zhihan](mailto:zzhihan@google.com), [Deon](mailto:deonkouatchou@google.com), [Girish](mailto:girishvn@google.com)
+
 --------------------------------------------------------------------------------
 
 ## Overview
