@@ -1,120 +1,72 @@
 # Codegen Classroom 🎓
 
-### A framework for iterative code generation for ML and data analysis tasks
+### A framework for iterative code generation for ML and data analysis tasks using parallel LLM agents.
 
-### using parallel LLM agents in Colab.
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/template/task_example.ipynb)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Gemini API](https://img.shields.io/badge/Gemini-API-8E75B2.svg)](https://ai.google.dev/gemini-api/docs)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub Stars](https://img.shields.io/github/stars/google-research/codegen-classroom?style=social)](https://github.com/google-research/codegen-classroom/stargazers)
 
-**Authors:** [Jake](mailto:jakegarrison@google.com), [Zhihan](mailto:zzhihan@google.com), [Deon](mailto:deonkouatchou@google.com), [Girish](mailto:girishvn@google.com)
+**Authors:** [Jake Garrison](mailto:jakegarrison@google.com),
+[Zhihan Zhang](mailto:zzhihan@cs.washington.edu),
+[Deon Kouatchou](mailto:deonkouatchou@google.com),
+[Girish Narayanswamy](mailto:girishvn@google.com)
+
+**Created:** August 2025
 
 --------------------------------------------------------------------------------
 
 ## Overview
 
 Codegen Classroom **automates code generation** for tasks that can be scored
-(e.g., regression, classification, signal processing) using **parallel
-[Gemini](https://ai.google.dev/gemini-api/docs/models) agents** in Colab. The
-library operates as an **autonomous LLM agent loop**; it evaluates the output of
-a language model iteratively. It is best suited for tasks where solution quality
-can be **scored numerically**. Agents **iteratively write, test, and refine**
-solutions in a learning loop where code is **executed and scored** against
-quantitative metrics.
+quantitatively (e.g., regression, classification, signal processing) using
+**parallel [Gemini](https://ai.google.dev/gemini-api/docs/models) and
+[Gemma](https://ai.google.dev/gemma) agents**.
 
-Agents **improve based on performance** feedback (scores, errors) and can
-**collaborate** with other agents to share insights and escape local optima.
+Instead of single-shot prompting, multiple student agents **iteratively write,
+execute, debug, and refine** Python solutions in a sandboxed **recursive
+self-improvement (RSI)** loop. Agents learn from execution feedback (validation
+scores, runtime errors, diagnostic metrics) and **collaborate via peer
+crossover** to share high-performing ideas and escape local optima.
 
-This framework elevates the human role from **developer to supervisor**. You
-define the **task, data, constraints, and scoring** criteria, while agents
-perform the **implementation and iterative refinement**.
+Whether you define the data splits and scoring metrics directly or prompt an
+agent to set up the task, the classroom handles implementation and iterative
+optimization.
 
 --------------------------------------------------------------------------------
 
-## Getting Started
+## Installation
 
-### Prerequisites
+Requires Python 3.9+ and a [`GEMINI_API_KEY`](https://ai.google.dev/gemini-api/docs/api-key):
 
-*   Python 3.9 or higher
-*   Google Colab or Jupyter Notebook environment
+```bash
+# 1. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-### Installation and Setup
+# 2. Install from PyPI (or editable local clone with `pip install -e .`)
+pip install codegen-classroom
 
-We recommend using a virtual environment to avoid dependency conflicts.
+# Optional extras:
+pip install "codegen-classroom[lightgbm]"  # LightGBM
+pip install "codegen-classroom[notebook]"  # Plotly and IPython for notebooks
+pip install "codegen-classroom[torch]"     # PyTorch and TorchVision
+pip install "codegen-classroom[jax]"       # JAX
+pip install "codegen-classroom[all]"       # All optional dependencies and pytest
 
-1.  **Create a virtual environment**:
-
-    ```bash
-    python3 -m venv .venv
-    ```
-
-2.  **Activate the virtual environment**:
-
-    *   On Linux/macOS:
-
-        ```bash
-        source .venv/bin/activate
-        ```
-    *   On Windows:
-
-        ```bash
-        .venv\Scripts\activate
-        ```
-
-3.  **Install dependencies in editable mode**:
-
-    ```bash
-    # Standard installation (core library - matplotlib included)
-    pip install -e .
-
-    # For interactive notebooks (Plotly and IPython):
-    pip install -e ".[notebook]"  # or pip install codegen_classroom[notebook]
-
-    # With LightGBM (recommended for tabular tasks):
-    pip install -e ".[lightgbm]"
-
-    # With PyTorch:
-    pip install -e ".[torch]"
-
-    # With JAX:
-    pip install -e ".[jax]"
-
-    # All dependencies (dev tools, torch, jax, lightgbm):
-    pip install -e ".[all]"
-    ```
-
-    *Note*: `matplotlib` is a core dependency, while `plotly` and `ipython` live
-    in the `[notebook]` extra (`pip install codegen_classroom[notebook]`).
-    `lightgbm` is the approved gradient boosting framework; `xgboost` is not
-    supported.
-
-4.  **Configure Environment Variables**: Copy `.env.example` to `.env` and fill
-    in your `GEMINI_API_KEY`.
-
-    ```bash
-    cp .env.example .env
-    ```
-
-5.  **Run Tests**: Verify the local installation by running the test suite:
-
-    ```bash
-    pytest
-    ```
-
-6.  **Set up the Colab/Jupyter Kernel** (optional):
-
-    ```bash
-    pip install ipykernel
-    python -m ipykernel install --user --name=codegen-classroom --display-name "Python (Codegen Classroom)"
-    ```
+# 3. Configure GEMINI_API_KEY
+export GEMINI_API_KEY="your-api-key"       # Or copy .env.example to .env
+```
 
 --------------------------------------------------------------------------------
 
 ## Quickstart
 
-The core library provides a modular agent loop that can be imported and
-customized for any scorable machine learning or data science task.
+Run an iterative classroom loop on any custom `pandas` dataset:
 
 ```python
 import os
-from codegen_classroom import agent_config
 from codegen_classroom import agents
 from codegen_classroom import student_learning
 import pandas as pd
@@ -130,7 +82,7 @@ y_test = pd.DataFrame({"target": [14.0]})
 # 2. Configure student agents
 student_configs = student_learning.get_classroom_student_configs(
     system_instruction="You are an expert ML engineer.",
-    model_names=["gemini-2.5-flash"],
+    model_names=["gemini-3.5-flash"],
     api_key=os.environ.get("GEMINI_API_KEY"),
 )
 classroom = [agents.StudentAgent(cfg) for cfg in student_configs]
@@ -141,7 +93,7 @@ Write a python function `solution(x_train, y_train, x_val)` that trains a regres
 model on (x_train, y_train) and returns predictions on x_val as a pandas DataFrame with column 'target'.
 """
 for cycle in range(3):
-  results = student_learning.run_parallel_classroom_learning_cycle(
+  student_learning.run_parallel_classroom_learning_cycle(
       current_classroom=classroom,
       x_train=x_train,
       y_train=y_train,
@@ -173,68 +125,98 @@ print("Final evaluation completed:", eval_results)
 
 --------------------------------------------------------------------------------
 
-## Library Structure
+## Tasks
 
-The core library is organized into the following modules:
+Self-contained benchmark suites live under
+[`codegen_classroom/tasks/<task>/`](./codegen_classroom/tasks/). Each task
+includes a shared configuration (`config.py`), dataset loader
+(`data_loader.py`), headless runner (`run_<task>.py`), unit tests
+(`run_<task>_test.py`), companion notebook (`<task>.ipynb`), `leaderboard.tsv`,
+and archived top solutions (`solutions/`).
 
-*   [agent_config.py](./codegen_classroom/agent_config.py): Global configuration
-    defaults for models, generation parameters, and execution timeouts.
-*   [agents.py](./codegen_classroom/agents.py): Defines the `StudentAgent`,
-    including **state management** (`best_score`, `best_solution`), **refinement
-    logic**, and **mutation strategies** (self-reflection, peer crossover).
-*   [code_execution.py](./codegen_classroom/code_execution.py): Handles
-    **extraction of Python code** blocks from LLM responses and **executes the
-    code** in a sandboxed environment, capturing `stdout`, `stderr`, and
-    results.
-*   [data_utils.py](./codegen_classroom/data_utils.py): Helpers for **data
-    loading**, generic file operations via `etils.epath`, **run ID generation**,
-    and local leaderboard tracking.
-*   [metrics.py](./codegen_classroom/metrics.py): Contains definitions for
-    individual **performance metrics** (e.g., MAE, R², Pearson, Worst-Group
-    Accuracy), including computation and **normalization logic**.
-*   [plotting.py](./codegen_classroom/plotting.py): Progress and final
-    evaluation charts using Matplotlib (headless image export) or Plotly
-    (interactive notebooks).
-*   [reporting.py](./codegen_classroom/reporting.py): Centralized logging setup,
-    markdown table rendering with configurable decimal precision,
-    `ReportSection` structured models, and dual sinks: interactive inline
-    display and disk export (`report.md`).
-*   [scoring.py](./codegen_classroom/scoring.py): Implements **solution
-    validation** (e.g., checking prediction shapes, NaNs) and calculates the
-    overall **weighted score** based on metrics.
-*   [student_learning.py](./codegen_classroom/student_learning.py):
-    **Orchestrates** the entire agent learning process. Contains the main
-    `run_learning_cycle` function and helpers to **run agents in parallel** and
-    perform final evaluations across strategies (`first`, `last`, `best`).
-*   [tasks/](./codegen_classroom/tasks/): Domain-specific benchmark suites and
-    reference scaffolding. See the
-    [Task Authoring Guide](./codegen_classroom/tasks/AGENTS.md) and the
-    [canonical template task](./codegen_classroom/tasks/template/).
-
---------------------------------------------------------------------------------
-
-## Benchmark Tasks
-
-Each benchmark task under
-[`codegen_classroom/tasks/<task>/`](./codegen_classroom/tasks/) is a
-self-contained package providing a shared configuration and prompt module
-(`config.py`), a dataset loader (`data_loader.py`), a headless runner
-(`run_<task>.py`), unit tests (`run_<task>_test.py`), a companion notebook
-(`<task>.ipynb`), a `leaderboard.tsv`, and archived top solutions
-(`solutions/`).
+| Task | Summary | Notebook |
+| :--- | :--- | :---: |
+| [`template`](./codegen_classroom/tasks/template/) | Synthetic multi-regime thermal load regression template (`N = 1,500`, 10 features) scored on R², MAE, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/template/task_example.ipynb) |
 
 ```bash
 # Run a benchmark task headlessly:
 python -m codegen_classroom.tasks.template.run_template
 
-# Verify a single task or all tasks before contributing:
+# Verify a single task or all tasks:
 python -m codegen_classroom.verify_task --task template --strict
 python -m codegen_classroom.verify_task --all
 ```
 
-To create a new benchmark task, copy
-[`tasks/template/`](./codegen_classroom/tasks/template/) and follow
-[`tasks/AGENTS.md`](./codegen_classroom/tasks/AGENTS.md).
+A normal run (without `--mock_students`) ends by running the held-out final
+evaluation, writing `report.md` and saved predictions to the run directory,
+appending a row to the task's `leaderboard.tsv`, and exporting the top runs to
+`solutions/`. `--report_only=<run_dir|latest>` only rebuilds `report.md` for an
+existing run and never re-executes student code.
+
+To add a new benchmark task, copy
+[`tasks/template/`](./codegen_classroom/tasks/template/) or prompt a coding
+agent with [`tasks/AGENTS.md`](./codegen_classroom/tasks/AGENTS.md) to scaffold
+one end-to-end.
+
+--------------------------------------------------------------------------------
+
+## Classroom Learning Method
+
+Each RSI cycle evolves parallel **Student Agents** across four stages:
+
+1.  **Generate, Self-Debug, and Execute**: Each student writes a Python
+    `solution(x_train, y_train, x_val)` function executed in a timed sandbox,
+    automatically repairing runtime or output contract errors before returning
+    predictions and diagnostic `feedback` (e.g., CV scores or feature
+    importances).
+2.  **Multi-Objective Scoring**: Predictions are evaluated against weighted task
+    metrics (e.g., R², MAPE, Macro-F1) and execution time, updating each
+    student's `best_score` and `best_solution`.
+3.  **Guided Refinement and Peer Crossover**: Students refine their code using
+    domain prompts and self-logged `feedback`. After `max_mutation_count`
+    stagnant cycles, a student applies a **Mutation Strategy**:
+    *   `SELF_BEST_CODE`: Re-anchors on the student's own best solution.
+    *   `BEST_PEER_CROSSOVER` / `BEST_PEER_REPLACEMENT`: Adopts feature
+        engineering and modeling ideas from top-scoring peers.
+    *   `CONTRASTIVE_PEER_CROSSOVER`: Contrasts top peer solutions against
+        weaker attempts to combine winning patterns and avoid failure modes.
+4.  **Final Evaluation and Analysis**: Each student's `first`, `last`, and
+    `best` validation solutions are retrained on the full learning split and
+    evaluated once on the held-out test set, while `SolutionAnalysisAgent`
+    synthesizes results into `report.md` and `leaderboard.tsv`.
+
+--------------------------------------------------------------------------------
+
+## Library Structure
+
+*   [agent_config.py](./codegen_classroom/agent_config.py): Default model
+    configurations, generation parameters, environment resolution, and execution
+    timeouts.
+*   [agents.py](./codegen_classroom/agents.py): `StudentAgent` and
+    `SolutionAnalysisAgent` state management, refinement prompts, and peer
+    mutation strategies.
+*   [code_execution.py](./codegen_classroom/code_execution.py): Python code
+    extraction and timed subprocess execution capturing `stdout`, `stderr`, and
+    return values.
+*   [data_utils.py](./codegen_classroom/data_utils.py): Data loading, file
+    operations (`etils.epath`), run ID generation, and `leaderboard.tsv`
+    tracking.
+*   [metrics.py](./codegen_classroom/metrics.py): Performance metrics (MAE, R²,
+    Pearson, Macro-F1, Worst-Group Accuracy) and score normalization.
+*   [plotting.py](./codegen_classroom/plotting.py): Progress and final
+    evaluation plots via Matplotlib (headless PNG export) or Plotly (notebooks).
+*   [reporting.py](./codegen_classroom/reporting.py): Structured logging,
+    Markdown table formatting, and report export (`report.md`).
+*   [scoring.py](./codegen_classroom/scoring.py): Prediction validation (shape,
+    index, NaN checks) and weighted composite scoring.
+*   [student_learning.py](./codegen_classroom/student_learning.py): Parallel
+    classroom cycle orchestration and final test evaluation across `first`,
+    `last`, and `best` strategies.
+*   [verify_task.py](./codegen_classroom/verify_task.py): Automated structural,
+    notebook, solution report, and prompt hygiene verifier.
+*   [tasks/](./codegen_classroom/tasks/): Benchmark task suites,
+    [Task Authoring Guide](./codegen_classroom/tasks/AGENTS.md), and
+    [canonical template](./codegen_classroom/tasks/template/).
 
 --------------------------------------------------------------------------------
 
@@ -244,5 +226,4 @@ To create a new benchmark task, copy
 
 The agents powered by Gemini are experimental and may generate inaccurate,
 hallucinated, or unoptimized code. Always execute the agent loop inside a
-sandboxed environment (like Google Colab) to prevent unexpected side effects
-from code execution.
+sandboxed environment to prevent unexpected side effects from code execution.

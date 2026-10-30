@@ -5,18 +5,38 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codegen-classroom"
 version = "0.1.0"
-description = "A framework for iterative code generation for ML and data analysis tasks using parallel LLM agents in Colab."
+description = "A framework for iterative code generation and recursive self-improvement (RSI) on ML and data analysis tasks using parallel LLM agents, optimized for local and Colab deployments."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
 authors = [
-  {name = "Google LLC"},
+    {name = "Google LLC"},
+    {name = "Jake Garrison", email = "jakegarrison@google.com"},
+]
+keywords = [
+    "machine-learning",
+    "automated-research",
+    "autoresearch",
+    "self-improvement",
+    "recursive-self-improvement",
+    "rsi",
+    "code-generation",
+    "llm-agents",
+    "multi-agent",
+    "automl",
+    "gemini",
+    "gemma",
 ]
 classifiers = [
-    "Programming Language :: Python :: 3",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Code Generators",
 ]
 dependencies = [
     "google-genai",
@@ -67,6 +87,8 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/google-research/codegen-classroom"
+Repository = "https://github.com/google-research/codegen-classroom"
+Issues = "https://github.com/google-research/codegen-classroom/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

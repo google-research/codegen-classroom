@@ -828,3 +828,222 @@ def _plot_final_test_matplotlib(
     plt.show()
   if not show:
     plt.close(fig)  # Prevent leaking plt figure in headless mode
+
+
+def style_axes(
+    ax: Any,
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    aspect: float | None = 0.88,
+    grid_axis: str = "both",
+) -> None:
+  """Applies standard styling matching plot_progress_static."""
+  if aspect:
+    ax.set_box_aspect(aspect)
+  ax.set_title(title, fontsize=11, fontweight="bold", pad=10)
+  ax.set_xlabel(xlabel, fontsize=10)
+  ax.set_ylabel(ylabel, fontsize=10)
+  if grid_axis:
+    ax.grid(True, linestyle="--", alpha=0.6, axis=grid_axis)
+  else:
+    ax.grid(False)
+  ax.tick_params(axis="both", which="major", labelsize=9.5)
+
+
+def plot_bland_altman_panel(
+    ax: Any,
+    y_true: np.ndarray,
+    y_best: np.ndarray,
+    y_first: np.ndarray | None = None,
+    *,
+    scale: float = 1.0,
+    unit: str = "",
+    title: str = "Bland–Altman Agreement (Pred − True)",
+    xlabel: str = "",
+    ylabel: str = "",
+    fmt: str = "+.2f",
+    sd_fmt: str = ".2f",
+    color_best: str = "#0d9488",
+    color_first: str = "#94a3b8",
+    color_loa: str = "#d62728",
+    legend_loc: str = "lower left",
+) -> dict[str, float]:
+  """Plots a Bland-Altman agreement panel comparing Cycle 0 and Best Solution."""
+  yt = np.asarray(y_true, dtype=float).ravel() * scale
+  u_sfx = f" {unit}" if unit else ""
+
+  def _calc(yp: np.ndarray):
+    yp_s = np.asarray(yp, dtype=float).ravel() * scale
+    m, d = 0.5 * (yt + yp_s), yp_s - yt
+    b, s = float(np.mean(d)), float(np.std(d, ddof=1))
+    return m, d, b, s, b - 1.96 * s, b + 1.96 * s
+
+  mb, db, bb, sb, lo_b, hi_b = _calc(y_best)
+  stats = {
+      "bias_best": bb,
+      "sd_best": sb,
+      "loa_low_best": lo_b,
+      "loa_high_best": hi_b,
+  }
+  if y_first is not None:
+    mf, df, bf, sf, lo_f, hi_f = _calc(y_first)
+    stats.update({
+        "bias_first": bf,
+        "sd_first": sf,
+        "loa_low_first": lo_f,
+        "loa_high_first": hi_f,
+    })
+    ax.scatter(
+        mf,
+        df,
+        s=14,
+        alpha=0.30,
+        color=color_first,
+        label=f"Cycle 0 (Bias={bf:{fmt}}{u_sfx}, SD={sf:{sd_fmt}})",
+    )
+  ax.scatter(
+      mb,
+      db,
+      s=18,
+      alpha=0.58,
+      color=color_best,
+      label=f"Best (Bias={bb:{fmt}}{u_sfx}, SD={sb:{sd_fmt}})",
+  )
+  ax.axhline(0.0, ls=":", color="#6b7280", lw=1.0)
+  ax.axhline(
+      bb,
+      ls="-",
+      color=color_best,
+      lw=1.5,
+      label=f"Best Bias ({bb:{fmt}}{u_sfx})",
+  )
+  ax.axhline(
+      hi_b,
+      ls="--",
+      color=color_loa,
+      lw=1.2,
+      label=f"95% LoA ([{lo_b:{fmt}}, {hi_b:{fmt}}])",
+  )
+  ax.axhline(lo_b, ls="--", color=color_loa, lw=1.2)
+  p99 = float(np.percentile(np.abs(db), 99.0))
+  y_lim = max(abs(lo_b), abs(hi_b), p99) * 1.32
+  ax.set_ylim(-y_lim, y_lim)
+  u_lbl = f" ({unit})" if unit else ""
+  style_axes(
+      ax,
+      title,
+      xlabel or f"Mean of Observed & Predicted{u_lbl}",
+      ylabel or f"Difference: Predicted − Observed{u_lbl}",
+  )
+  ax.legend(fontsize=7.0, loc=legend_loc, framealpha=0.92)
+  return stats
+
+
+def plot_grouped_bar_panel(
+    ax: Any,
+    labels: Sequence[str],
+    vals_first: Sequence[float],
+    vals_best: Sequence[float],
+    *,
+    label_first: str = "Cycle 0",
+    label_best: str = "Best Solution",
+    title: str = "",
+    xlabel: str = "",
+    ylabel: str = "",
+    fmt: str = "{:.2f}",
+    color_first: str = "#94a3b8",
+    color_best: str = "#1f77b4",
+    ref_line: float | None = None,
+    ref_label: str = "",
+    rotation: float = 0.0,
+    legend_loc: str = "upper right",
+) -> None:
+  """Plots a grouped bar chart comparing Cycle 0 baseline and Best Solution."""
+  x_pos, width = np.arange(len(labels)), 0.36
+  b1 = ax.bar(
+      x_pos - width / 2,
+      vals_first,
+      width,
+      label=label_first,
+      color=color_first,
+      edgecolor="white",
+  )
+  b2 = ax.bar(
+      x_pos + width / 2,
+      vals_best,
+      width,
+      label=label_best,
+      color=color_best,
+      edgecolor="white",
+  )
+  if ref_line is not None:
+    ax.axhline(
+        ref_line,
+        ls="--",
+        color="#dc2626",
+        lw=1.1,
+        label=ref_label or f"Ref ({fmt.format(ref_line)})",
+    )
+  for bg in (b1, b2):
+    ax.bar_label(
+        bg,
+        labels=[fmt.format(v) for v in bg.datavalues],
+        padding=2,
+        fontsize=6.8,
+    )
+  ax.set_xticks(x_pos)
+  ax.set_xticklabels(
+      labels,
+      fontsize=8,
+      rotation=rotation,
+      ha="right" if rotation > 0 else "center",
+  )
+  ax.set_ylim(0, max(*vals_first, *vals_best, ref_line or 0.0) * 1.20)
+  style_axes(ax, title, xlabel, ylabel, grid_axis="y")
+  ax.legend(fontsize=7.3, loc=legend_loc, framealpha=0.92)
+
+
+def plot_confusion_matrix_panel(
+    ax: Any,
+    fig: Any,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    labels: Sequence[int],
+    display_labels: Sequence[str] | None = None,
+    *,
+    title: str = "Best Solution Confusion Matrix (Row %)",
+    xlabel: str = "Predicted Class",
+    ylabel: str = "True Class",
+    cmap: str = "Blues",
+    rotation: float = 22.0,
+) -> np.ndarray:
+  """Plots a row-normalized confusion matrix with cell recall percentage labels."""
+  from sklearn.metrics import confusion_matrix  # pylint: disable=g-import-not-at-top
+
+  cm = confusion_matrix(y_true, y_pred, labels=list(labels), normalize="true")
+  disp = display_labels or [str(l) for l in labels]
+  im = ax.imshow(cm, cmap=cmap, vmin=0.0, vmax=1.0, aspect="equal")
+  for (i, j), val in np.ndenumerate(cm):
+    ax.text(
+        j,
+        i,
+        f"{val * 100:.0f}%",
+        ha="center",
+        va="center",
+        fontsize=6.5,
+        color="white" if val > 0.52 else "#1f2937",
+        fontweight="bold" if i == j else "normal",
+    )
+  ax.set_xticks(np.arange(len(labels)))
+  ax.set_yticks(np.arange(len(labels)))
+  ax.set_xticklabels(
+      disp,
+      fontsize=8,
+      rotation=rotation,
+      ha="right" if rotation > 0 else "center",
+  )
+  ax.set_yticklabels(disp, fontsize=8)
+  style_axes(ax, title, xlabel, ylabel, grid_axis="")
+  fig.colorbar(im, ax=ax, fraction=0.042, pad=0.03, format="%.1f")
+  return cm

@@ -99,6 +99,12 @@ class GeminiAgentTest(AgentsTestBase):
     _, kwargs = self.mock_model_client_cls.call_args
     self.assertEqual(kwargs['http_options'].timeout, 120_000)
 
+  def test_load_env_sets_thread_limits(self):
+    with mock.patch.dict(os.environ, {}, clear=True):
+      agent_config.load_env()
+      for var in agent_config.DEFAULT_THREAD_LIMIT_ENV_VARS:
+        self.assertEqual(os.environ.get(var), '4')
+
   @parameterized.named_parameters(
       dict(
           testcase_name='with_system_instructions',

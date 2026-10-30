@@ -16,8 +16,7 @@
 
 from __future__ import annotations
 
-import ast
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import difflib
 import json
@@ -320,7 +319,7 @@ def build_run_report(
     students: list[Any] | None = None,
     metric_weights: Mapping[str, float] | None = None,
     top_n: int = 2,
-    worst_n: int = 1,
+    worst_n: int = 0,
     include_plots: bool = True,
     solution_id: str | None = None,
     metadata: Mapping[str, Any] | None = None,
@@ -482,10 +481,11 @@ def build_run_report(
       if any(not _is_empty_cell(s["metrics"].get(m)) for s in students_info)
   ]
 
+  # Pick the best student by validation score; test score only breaks ties.
   students_info.sort(
       key=lambda s: (
-          s["test_score"] if s["test_score"] is not None else -float("inf"),
           s["val_score"] if s["val_score"] is not None else -float("inf"),
+          s["test_score"] if s["test_score"] is not None else -float("inf"),
       ),
       reverse=True,
   )
@@ -710,109 +710,22 @@ def build_run_report(
   valid_candidates = []
   for s_info in students_info:
     s_name, best_c = s_info["name"], s_info["best_cycle"]
-    if best_c is None or str(best_c) in ("N/A", "None", "", "-1"):
+    if best_c is None:
       continue
-
     b_row = s_info["best_val_row"] or {}
-    plan_text = (
-        b_row.get("plan")
-        or b_row.get("student_plan")
-        or b_row.get("description")
-    )
-    code_text = b_row.get("code")
-    exec_feedback = (
-        b_row.get("execution_feedback")
-        or b_row.get("stdout")
-        or b_row.get("output")
-    )
-
-    if (
-        not code_text or not plan_text or not exec_feedback
-    ) and students_dir.exists():
-      csv_p = students_dir / f"{s_name}.csv"
-      if csv_p.exists():
-        try:
-          df_hist = pd.read_csv(csv_p)
-          m = (
-              df_hist[df_hist["cycle"] == best_c]
-              if "cycle" in df_hist.columns
-              else pd.DataFrame()
-          )
-          if not m.empty:
-            row0 = m.iloc[0]
-            plan_text = (
-                plan_text
-                or row0.get("plan")
-                or row0.get("student_plan")
-                or row0.get("description")
-            )
-            code_text = code_text or row0.get("code")
-            exec_feedback = (
-                exec_feedback
-                or row0.get("execution_feedback")
-                or row0.get("stdout")
-                or row0.get("output")
-            )
-        except Exception:  # pylint: disable=broad-exception-caught
-          pass
-
-    eval_best = s_info.get("eval_best") or {}
-    plan_text = (
-        plan_text
-        or eval_best.get("plan")
-        or eval_best.get("student_plan")
-        or eval_best.get("description")
-    )
-    code_text = code_text or eval_best.get("code")
-    exec_feedback = (
-        exec_feedback
-        or eval_best.get("execution_feedback")
-        or eval_best.get("stdout")
-        or eval_best.get("output")
-    )
-
-    if not code_text or not str(code_text).strip():
+    if _is_empty_cell(b_row.get("code")):
       continue
-
-    if (
-        not plan_text or pd.isna(plan_text) or not str(plan_text).strip()
-    ) and code_text:
-      try:
-        tree = ast.parse(str(code_text))
-        doc = ast.get_docstring(tree)
-        if not doc:
-          for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name == "solution":
-              doc = ast.get_docstring(node)
-              break
-        if not doc:
-          for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and ast.get_docstring(node):
-              doc = ast.get_docstring(node)
-              break
-        if doc:
-          plan_text = doc.strip()
-      except Exception:  # pylint: disable=broad-exception-caught
-        pass
-      if not plan_text or pd.isna(plan_text) or not str(plan_text).strip():
-        step_comments = [
-            re.sub(r"^#\s*", "", ln.strip())
-            for ln in str(code_text).splitlines()
-            if re.match(r"^\s*#\s*(?:\d+\.|Step\s+\d+|---)", ln)
-        ]
-        if step_comments:
-          plan_text = "\n".join(f"- {c}" for c in step_comments)
-        elif exec_feedback and pd.notna(exec_feedback):
-          first_fb = next(
-              (
-                  ln.strip()
-                  for ln in str(exec_feedback).splitlines()
-                  if ln.strip() and not ln.strip().startswith("[Note:")
-              ),
-              "",
-          )
-          if first_fb:
-            plan_text = first_fb
+    code_text = str(b_row["code"]).strip()
+    plan_text = (
+        None
+        if _is_empty_cell(b_row.get("plan"))
+        else str(b_row["plan"]).strip()
+    )
+    exec_feedback = (
+        None
+        if _is_empty_cell(b_row.get("execution_feedback"))
+        else str(b_row["execution_feedback"]).strip()
+    )
 
     valid_candidates.append({
         "name": s_name,
@@ -820,42 +733,10 @@ def build_run_report(
         "val_score": s_info["val_score"],
         "test_score": s_info["test_score"],
         "metrics": s_info.get("metrics") or {},
-        "plan": (
-            str(plan_text).strip()
-            if plan_text and pd.notna(plan_text) and str(plan_text).strip()
-            else None
-        ),
-        "code": str(code_text).strip(),
-        "feedback": (
-            str(exec_feedback)
-            if exec_feedback and pd.notna(exec_feedback)
-            else None
-        ),
+        "plan": plan_text,
+        "code": code_text,
+        "feedback": exec_feedback,
     })
-
-  valid_candidates.sort(
-      key=lambda c: (
-          1
-          if c["test_score"] is not None and np.isfinite(c["test_score"])
-          else 0,
-          (
-              c["test_score"]
-              if c["test_score"] is not None and np.isfinite(c["test_score"])
-              else -float("inf")
-          ),
-          (
-              1
-              if c["val_score"] is not None and np.isfinite(c["val_score"])
-              else 0
-          ),
-          (
-              c["val_score"]
-              if c["val_score"] is not None and np.isfinite(c["val_score"])
-              else -float("inf")
-          ),
-      ),
-      reverse=True,
-  )
 
   def _add_cand_sections(cand: dict[str, Any], title: str) -> None:
     v_s, t_s = cand["val_score"], cand["test_score"]
@@ -938,7 +819,8 @@ def build_run_report(
           ]
         val_str = "\n".join(f"* `{t}`" for t in tag_items)
       elif "description" in k_lower or "insight" in k_lower:
-        lines = str(v).strip().splitlines()
+        wrapped_v = _format_markdown_block(str(v).strip(), width=76)
+        lines = wrapped_v.splitlines()
         val_str = "\n".join(
             f"> {line}" if line.strip() else ">" for line in lines
         )
@@ -1012,7 +894,7 @@ def build_run_report(
         for l in shared_inst.strip().splitlines()
         if not l.strip().startswith("# CUSTOMIZE:")
     ]
-    wrapped_inst = _format_markdown_block("\n".join(cleaned_lines), width=78)
+    wrapped_inst = _format_markdown_block("\n".join(cleaned_lines), width=74)
     quoted = "\n".join(
         f"> {'##' + l if l.startswith('#') else l}".rstrip()
         for l in wrapped_inst.splitlines()
@@ -1349,6 +1231,7 @@ def write_report(
 
     if (
         sec.kind == "markdown"
+        and sec.title == "Learning Trajectory"
         and "![" in str(sec.payload)
         and "plots/" in str(sec.payload)
     ):
@@ -1413,10 +1296,222 @@ def write_report(
         if str(k).startswith("_"):
           continue
         val_str = _format_cell_value(v, precision=precision)
-        lines.append(f"* **{k}**: {val_str}")
+        lines.append(_format_markdown_block(f"* **{k}**: {val_str}"))
       lines.append("")
 
   raw_text = "\n".join(lines)
   stripped = [line.rstrip() for line in raw_text.splitlines()]
   clean_text = re.sub(r"\n{3,}", "\n\n", "\n".join(stripped)).strip() + "\n"
   md_file.write_text(clean_text)
+
+
+def write_run_report(
+    run_dir: str,
+    students: list[Any] | None = None,
+    metric_weights: Mapping[str, float] | None = None,
+) -> str:
+  """Builds and writes `<run_dir>/report.md`; returns its path."""
+  sections = build_run_report(
+      run_dir, students=students, metric_weights=metric_weights
+  )
+  write_report(run_dir, sections, metric_weights=metric_weights)
+  return os.path.join(run_dir, "report.md")
+
+
+def resolve_solution_predictions(
+    md_path: str | epath.Path,
+    x_learning: pd.DataFrame,
+    y_learning: pd.DataFrame,
+    x_test: pd.DataFrame,
+    baseline_fn: Any = None,
+    timeout_s: float = 180.0,
+    ravel: bool = True,
+) -> tuple[np.ndarray, np.ndarray] | None:
+  """Resolves (y_pred_best, y_pred_first) for a solution report .md file."""
+  from codegen_classroom import code_execution  # pylint: disable=g-import-not-at-top
+
+  p = epath.Path(md_path)
+  if not p.exists():
+    return None
+  text = p.read_text()
+  m_top = re.search(r"(## Top Solution 1:.*?)(?=\n## |\Z)", text, flags=re.S)
+  top_text = m_top.group(1) if m_top else text
+
+  try:
+    code_str, _ = code_execution.extract_python_code(
+        top_text, target_fn_name="solution"
+    )
+    (pred_df, _), _ = code_execution.execute_code(
+        extracted_code=code_str,
+        target_fn_name="solution",
+        fn_args=[x_learning.copy(), y_learning.copy(), x_test.copy()],
+        initial_namespace={"pd": pd, "np": np},
+        timeout_seconds=timeout_s,
+    )
+    arr_best = pred_df.to_numpy(dtype=float)
+    y_pred_best = arr_best[:, 0].ravel() if ravel else arr_best
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.warning("Diagnostic code execution failed for %s: %s", p.name, e)
+    return None
+
+  if baseline_fn is None:
+    return None
+  raw_base = np.asarray(
+      baseline_fn(x_learning.copy(), y_learning.copy(), x_test.copy()),
+      dtype=float,
+  )
+  y_pred_first = raw_base.ravel() if ravel else raw_base
+  return y_pred_best, y_pred_first
+
+
+def embed_diagnostic_section(
+    md_path: str | epath.Path,
+    plot_rel_path: str,
+    summary_md: str = "",
+    overview_plot_rel_path: str | None = None,
+) -> None:
+  """Embeds or updates the Diagnostic & Impact Analysis section in a report."""
+  p = epath.Path(md_path)
+  if not p.exists():
+    return
+  lines = ["### Diagnostic & Impact Analysis", ""]
+  if overview_plot_rel_path:
+    lines += [f"![Dataset & Feature Overview]({overview_plot_rel_path})", ""]
+  lines.append(f"![Diagnostic Analysis]({plot_rel_path})")
+  if summary_md.strip():
+    lines += ["", _format_markdown_block(summary_md.strip())]
+  block = "\n".join(lines) + "\n\n"
+
+  text = re.sub(
+      r"\n*###\s+Diagnostic & Impact Analysis\n.*?(?=\n###\s+|\n##\s+|\Z)",
+      "",
+      p.read_text(),
+      flags=re.S,
+  )
+  pat = re.compile(
+      r"(##\s+Top Solution 1:[^\n]*\n.*?)\n+(###\s+(?:Plan|Code)\b)", flags=re.S
+  )
+  new_text = (
+      pat.sub(lambda m: f"{m.group(1)}\n\n{block}{m.group(2)}", text, count=1)
+      if pat.search(text)
+      else text.rstrip() + "\n\n" + block
+  )
+  p.write_text(re.sub(r"\n{3,}", "\n\n", new_text).strip() + "\n")
+
+
+def _slug(text: Any) -> str:
+  return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
+
+
+def export_top_solutions(
+    task_dir: str,
+    *,
+    sort_by: Sequence[str],
+    metric_weights: Mapping[str, float],
+    experiments_root: str,
+    top_n: int,
+    write: bool = True,
+    ascending: Sequence[bool] | bool = False,
+    diagnose: Callable[[list[str]], None] | None = None,
+    variant: str | None = None,
+) -> list[str]:
+  """Writes the top `leaderboard.tsv` runs as `solutions/[variant/]<id>.md`.
+
+  Args:
+    task_dir: Task directory containing `leaderboard.tsv` and `solutions/`.
+    sort_by: Leaderboard columns to rank by; the first must be numeric.
+    metric_weights: Passed through to the report builder.
+    experiments_root: Fallback parent for relative `run_dir` values.
+    top_n: Number of solutions to keep.
+    write: If False, only returns the IDs that would be written.
+    ascending: Sort order(s) for `sort_by`.
+    diagnose: Called with the written report paths, e.g. to add plots.
+    variant: Restricts to this leaderboard `variant` and its subdirectory.
+
+  Returns:
+    The exported solution IDs, best first. Older reports are pruned.
+  """
+  lb_path = os.path.join(task_dir, "leaderboard.tsv")
+  if not os.path.isfile(lb_path):
+    return []
+  df = data_utils.load_leaderboard(lb_path)
+  if df.empty or sort_by[0] not in df:
+    return []
+  df = df[pd.to_numeric(df[sort_by[0]], errors="coerce").notna()]
+  if "tags" in df:
+    tags = df["tags"].fillna("").astype(str)
+    df = df[~tags.str.contains(r"\b(?:mock|reference)\b", case=False)]
+  if variant:
+    df = df[df["variant"] == variant]
+  df = df.sort_values(by=list(sort_by), ascending=ascending)
+
+  sol_dir = os.path.join(task_dir, "solutions", variant or "")
+  exported = []
+  written = []
+  for row in df.to_dict("records"):
+    sol_id = (
+        _slug(row.get("experiment_name", "")).lstrip("0123456789_") or "sol"
+    )
+    date = pd.to_datetime(row.get("timestamp"), errors="coerce")
+    if pd.notna(date):
+      suffix = date.strftime("_%Y%m%d")
+      if not sol_id.endswith(suffix):
+        sol_id += suffix
+    if sol_id in exported:
+      continue
+
+    if write:
+      md_path = os.path.join(sol_dir, f"{sol_id}.md")
+      rd = (
+          ""
+          if _is_empty_cell(row.get("run_dir"))
+          else str(row["run_dir"]).strip()
+      )
+      found_cand = None
+      if rd:
+        for cand in (
+            rd,
+            os.path.join(experiments_root, rd),
+            os.path.join(experiments_root, os.path.basename(rd)),
+        ):
+          if os.path.isdir(os.path.join(cand, "students")):
+            found_cand = cand
+            break
+      if found_cand is not None:
+        sections = build_run_report(
+            found_cand,
+            metric_weights=metric_weights,
+            solution_id=sol_id,
+            metadata=row,
+        )
+        write_report(
+            md_path,
+            sections,
+            metric_weights=metric_weights,
+        )
+        written.append(md_path)
+      elif not os.path.isfile(md_path):
+        continue
+
+    exported.append(sol_id)
+    if len(exported) >= top_n:
+      break
+
+  if not write or not exported or not os.path.isdir(sol_dir):
+    return exported
+  keep = {*exported, "dataset_overview", "task_assessment"}
+  for d in (sol_dir, os.path.join(sol_dir, "plots")):
+    for f in os.listdir(d) if os.path.isdir(d) else []:
+      stem, ext = os.path.splitext(f)
+      if (
+          ext in (".md", ".png")
+          and stem.removesuffix("_diagnostics").removesuffix("_examples")
+          not in keep
+      ):
+        os.remove(os.path.join(d, f))
+  if diagnose and written:
+    try:
+      diagnose(written)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.warning("Solution diagnostics failed: %s", e)
+  return exported

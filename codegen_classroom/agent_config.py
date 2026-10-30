@@ -71,9 +71,20 @@ DEFAULT_EXECUTION_TIMEOUT_SECONDS = 30
 # Default HTTP request timeout in milliseconds for GenAI API calls.
 DEFAULT_HTTP_TIMEOUT_MS = 300_000
 
+# Default environment variables used to cap BLAS/OpenMP thread pools per worker.
+DEFAULT_THREAD_LIMIT_ENV_VARS = (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+)
+
 
 def load_env(env_path: str | epath.PathLike | None = None) -> None:
-  """Loads GEMINI_API_KEY from package .env or Colab userdata into os.environ."""
+  """Loads GEMINI_API_KEY and sets default BLAS/OpenMP thread limits."""
+  for var in DEFAULT_THREAD_LIMIT_ENV_VARS:
+    os.environ.setdefault(var, "4")  # Max 4 threads per worker
   if env_path is not None:
     dotenv.load_dotenv(env_path)
   dotenv.load_dotenv(epath.Path(__file__).resolve().parent / ".env")

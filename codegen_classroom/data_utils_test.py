@@ -517,6 +517,61 @@ class DataUtilsTest(parameterized.TestCase):
     with self.assertRaises(expected_error):
       data_utils.load_leaderboard(path)
 
+  def test_load_seed_solution(self):
+    """Tests loading a seed solution from solutions/*.md."""
+    self.assertIsNone(data_utils.load_seed_solution(None, self.test_dir))
+    sol_dir = os.path.join(self.test_dir, 'solutions')
+    os.makedirs(sol_dir, exist_ok=True)
+    with open(os.path.join(sol_dir, 'top_run.md'), 'w') as f:
+      f.write(
+          '# Overview\n* **Best Test Score**: 0.89\n\n## Top Solution 1: s1\n'
+          '```python\ndef solution(X_train, y_train, X_val):\n'
+          '  return X_val, "seeded"\n```\n'
+      )
+    seed_md = data_utils.load_seed_solution('best', task_dir=self.test_dir)
+    self.assertIn('Plan: Seeded from top_run.md.', seed_md)
+    self.assertIn('def solution', seed_md)
+    self.assertEqual(
+        data_utils.load_seed_solution('top_run', task_dir=self.test_dir),
+        seed_md,
+    )
+
+  def test_load_seed_solution_missing_raises(self):
+    """Tests that unknown seeds raise instead of silently running unseeded."""
+    with self.assertRaises(FileNotFoundError):
+      data_utils.load_seed_solution('best', task_dir=self.test_dir)
+    with self.assertRaises(FileNotFoundError):
+      data_utils.load_seed_solution('no_such_run', task_dir=self.test_dir)
+
+  def test_load_seed_solution_malformed_raises(self):
+    """Tests that a report without a Top Solution code block raises."""
+    sol_dir = os.path.join(self.test_dir, 'solutions')
+    os.makedirs(sol_dir, exist_ok=True)
+    with open(os.path.join(sol_dir, 'bad.md'), 'w') as f:
+      f.write('# Overview\n* **Best Test Score**: 0.5\n')
+    with self.assertRaises(ValueError):
+      data_utils.load_seed_solution('bad', task_dir=self.test_dir)
+
+  def test_resolve_task_dir(self):
+    here = os.path.dirname(os.path.realpath(__file__))
+    self.assertEqual(data_utils.resolve_task_dir(__file__), here)
+    self.assertEqual(
+        data_utils.resolve_task_dir(__file__, override=self.test_dir),
+        os.path.abspath(self.test_dir),
+    )
+
+  def test_latest_and_resolve_run_dir(self):
+    runs_dir = os.path.join(self.test_dir, 'runs')
+    run1, run2 = (os.path.join(runs_dir, n) for n in ('run_1', 'run_2'))
+    os.makedirs(run1)
+    os.makedirs(run2)
+    os.utime(run1, (1000, 1000))
+    os.utime(run2, (2000, 2000))
+    self.assertEqual(data_utils.resolve_run_dir('latest', runs_dir), run2)
+    self.assertEqual(data_utils.resolve_run_dir(run1, runs_dir), run1)
+    with self.assertRaises(FileNotFoundError):
+      data_utils.resolve_run_dir(os.path.join(runs_dir, 'nope'), runs_dir)
+
 
 if __name__ == '__main__':
   absltest.main()

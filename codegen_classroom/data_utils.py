@@ -14,12 +14,16 @@
 
 """Data utils for working with DataFrames and other data."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping, Sequence
 import dataclasses
 import datetime
 import json
 import logging
 import os
+import re
+import tempfile
 from typing import Any
 
 from etils import epath
@@ -250,3 +254,84 @@ def resolve_workspace_dir(path: str) -> str:
           return os.path.join(workspace_dir, parts[1])
 
   return path
+
+
+def load_seed_solution(seed_from: str | None, task_dir: str) -> str | None:
+  """Returns the top solution code block from a `solutions/*.md` report.
+
+  Args:
+    seed_from: None to skip seeding, "best" for the highest-scoring report in
+      `<task_dir>/solutions/`, a report name (stem) in that directory, or a path
+      to a report file.
+    task_dir: Task directory containing the `solutions/` folder.
+
+  Returns:
+    The seeded plan and code block, or None if `seed_from` is unset.
+
+  Raises:
+    FileNotFoundError: If no matching solution report exists.
+    ValueError: If the report has no `## Top Solution 1` python code block.
+  """
+  if not seed_from:
+    return None
+  sol_dir = epath.Path(task_dir) / "solutions"
+  if seed_from == "best":
+    score_re = re.compile(r"\*\*Best Test Score\*\*:\s*([-+]?\d*\.?\d+)")
+    scored = [
+        (float(m.group(1)), p)
+        for p in sol_dir.glob("*.md")
+        if (m := score_re.search(p.read_text()))
+    ]
+    if not scored:
+      raise FileNotFoundError(f"No scored solutions in {sol_dir}")
+    path = max(scored, key=lambda t: t[0])[1]
+  else:
+    path = next(
+        (
+            p
+            for p in (epath.Path(seed_from), sol_dir / f"{seed_from}.md")
+            if p.is_file()
+        ),
+        None,
+    )
+    if path is None:
+      raise FileNotFoundError(f"Seed solution {seed_from!r} not found")
+  m = re.search(
+      r"## Top Solution 1:.*?(```python\b.*?```)", path.read_text(), flags=re.S
+  )
+  if not m:
+    raise ValueError(f"No Top Solution 1 python code block in {path}")
+  return f"Plan: Seeded from {path.name}.\n\n{m.group(1)}"
+
+
+def resolve_task_dir(module_file: str, override: str | None = None) -> str:
+  """Resolves the live task directory, respecting an override if set.
+
+  Args:
+    module_file: Path to the task module's __file__.
+    override: Optional explicit task directory path.
+
+  Returns:
+    The resolved absolute task directory path.
+  """
+  if override:
+    return os.path.abspath(override)
+  return resolve_workspace_dir(os.path.dirname(os.path.realpath(module_file)))
+
+
+def experiments_root(task_name: str) -> str:
+  """Returns `$CODEGEN_EXPERIMENTS_DIR` or a temp dir for the task's runs."""
+  return os.environ.get("CODEGEN_EXPERIMENTS_DIR") or os.path.join(
+      tempfile.gettempdir(), "codegen_classroom", task_name
+  )
+
+
+def resolve_run_dir(report_only: str, runs_base_dir: str) -> str:
+  """Returns `report_only` as a run dir, or the newest run if it is 'latest'."""
+  run_dir = report_only
+  if report_only == "latest" and os.path.isdir(runs_base_dir):
+    runs = [e.path for e in os.scandir(runs_base_dir) if e.is_dir()]
+    run_dir = max(runs, key=os.path.getmtime, default="")
+  if not os.path.isdir(run_dir):
+    raise FileNotFoundError(f"No run directory for {report_only!r}.")
+  return run_dir
