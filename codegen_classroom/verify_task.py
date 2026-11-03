@@ -161,7 +161,11 @@ def _check_notebook(nb: pathlib.Path, base_dir: pathlib.Path) -> list[str]:
         is_magic = stripped.startswith("!") or bool(
             re.match(r"^%+[a-zA-Z]", stripped)
         )
-        lines_out.append(f"# {line}" if is_magic else line)
+        lines_out.append(
+            " " * (len(line) - len(line.lstrip())) + "pass"
+            if is_magic
+            else line
+        )
       ast.parse("\n".join(lines_out), filename=f"{rel}:cell_{idx}")
   except (json.JSONDecodeError, SyntaxError, ValueError, OSError) as e:
     return [f"{rel}: {e}"]

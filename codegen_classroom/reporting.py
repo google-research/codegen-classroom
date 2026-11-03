@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import difflib
+import importlib
 import json
 import logging
 import os
@@ -36,8 +37,26 @@ import numpy as np
 import pandas as pd
 
 
-class _CodegenStreamHandler(logging.StreamHandler):
-  """Console handler, tagged by type so setup_logger can find and reuse it."""
+# Dynamically resolve RichHandler so colored console logging works when `rich`
+# is installed, falling back to a standard StreamHandler otherwise.
+try:
+  _RICH_HANDLER = importlib.import_module("rich.logging").RichHandler
+except (ImportError, AttributeError):
+  _RICH_HANDLER = None
+
+
+if _RICH_HANDLER is not None:
+
+  class _CodegenStreamHandler(_RICH_HANDLER):
+    """Rich console handler with colored output."""
+
+    def __init__(self):
+      super().__init__(rich_tracebacks=True, markup=False, show_path=False)
+
+else:
+
+  class _CodegenStreamHandler(logging.StreamHandler):
+    """Console handler, tagged by type so setup_logger can find and reuse it."""
 
 
 class _CodegenFileHandler(logging.StreamHandler):
@@ -81,7 +100,8 @@ def setup_logger(
     stream_handler = _CodegenStreamHandler()
     logger.addHandler(stream_handler)
   stream_handler.setLevel(level)
-  stream_handler.setFormatter(formatter)
+  if _RICH_HANDLER is None:
+    stream_handler.setFormatter(formatter)
 
   if log_file:
     existing = next(
@@ -705,6 +725,39 @@ def build_run_report(
               level=3,
           )
       )
+
+  # Cost Breakdown
+  cost_rows, tot_cost = [], 0.0
+  for s in students_info:
+    recs = student_results.get(s["name"], [])
+    s_in = sum(int(r.get("input_tokens") or 0) for r in recs)
+    s_out = sum(int(r.get("output_tokens") or 0) for r in recs)
+    s_cost = sum(float(r.get("cost_usd") or 0.0) for r in recs)
+    tot_cost += s_cost
+    cost_rows.append({
+        "Student": s["name"],
+        "Generations": sum(1 + int(r.get("retry_count") or 0) for r in recs),
+        "Input Tokens": s_in,
+        "Output Tokens": s_out,
+        "Total Tokens": s_in + s_out,
+        "Est. Cost (USD)": f"${s_cost:.3f}",
+    })
+  tot_in = sum(r["Input Tokens"] for r in cost_rows)
+  tot_out = sum(r["Output Tokens"] for r in cost_rows)
+  if tot_in + tot_out > 0:
+    overview_payload["Total Tokens"] = tot_in + tot_out
+    overview_payload["Est. Cost (USD)"] = f"${tot_cost:.3f}"
+    cost_rows.append({
+        "Student": "**Total**",
+        "Generations": sum(r["Generations"] for r in cost_rows),
+        "Input Tokens": tot_in,
+        "Output Tokens": tot_out,
+        "Total Tokens": tot_in + tot_out,
+        "Est. Cost (USD)": f"${tot_cost:.3f}",
+    })
+    sections.append(
+        ReportSection("Cost Breakdown", "dataframe", pd.DataFrame(cost_rows), 3)
+    )
 
   # Candidate solutions (Top N and Lowest-Scoring)
   valid_candidates = []

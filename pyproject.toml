@@ -58,6 +58,7 @@ dependencies = [
 notebook = [
     "plotly",
     "ipython",
+    "rich",
 ]
 torch = [
     "torch",
@@ -76,6 +77,7 @@ dev = [
 all = [
     "plotly",
     "ipython",
+    "rich",
     "torch",
     "torchvision",
     "jax",

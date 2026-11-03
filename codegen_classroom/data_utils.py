@@ -193,6 +193,20 @@ def submit_results_to_local_leaderboard(
     logger.warning("Leaderboard path does not end with .tsv.")
 
   results_df_row = results_df_row.copy()
+
+  if "run_dir" in results_df_row and pd.notna(
+      run_dir := results_df_row["run_dir"].iloc[0]
+  ):
+    rows = sum((list(r) for r in load_student_results(run_dir).values()), [])
+    if tok := sum(
+        int(r.get("input_tokens") or 0) + int(r.get("output_tokens") or 0)
+        for r in rows
+    ):
+      results_df_row["total_tokens"] = tok
+      results_df_row["est_cost_usd"] = round(
+          sum(float(r.get("cost_usd") or 0.0) for r in rows), precision
+      )
+
   for col in ("run_dir", "solution_dir"):
     if col in results_df_row.columns:
       results_df_row[col] = results_df_row[col].apply(

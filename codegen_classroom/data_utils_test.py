@@ -312,6 +312,23 @@ class DataUtilsTest(parameterized.TestCase):
     self.assertLen(df_read4, 1)
     self.assertEqual(df_read4.loc[0, 'solution_dir'], 'solutions/sol_1')
 
+    # Seventh write with student CSV token/cost auto-population
+    run_dir = os.path.join(self.test_dir, 'sample_run')
+    os.makedirs(os.path.join(run_dir, 'students'), exist_ok=True)
+    pd.DataFrame([{
+        'cycle': 0,
+        'input_tokens': 1000,
+        'output_tokens': 200,
+        'cost_usd': 0.0011,
+    }]).to_csv(os.path.join(run_dir, 'students', 's1.csv'), index=False)
+    df7 = pd.DataFrame(
+        {'score': [30.0], 'name': ['Grace'], 'run_dir': [run_dir]}
+    )
+    data_utils.submit_results_to_local_leaderboard(leaderboard_file, df7)
+    df_read5 = pd.read_csv(leaderboard_file, sep='\t')
+    self.assertEqual(df_read5.loc[5, 'total_tokens'], 1200)
+    self.assertAlmostEqual(df_read5.loc[5, 'est_cost_usd'], 0.001, places=3)
+
   def test_round_leaderboard_metrics(self):
     df = pd.DataFrame({
         'test_accuracy': [0.1234567, 0.987654],

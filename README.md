@@ -190,11 +190,11 @@ Each RSI cycle evolves parallel **Student Agents** across four stages:
 ## Library Structure
 
 *   [agent_config.py](./codegen_classroom/agent_config.py): Default model
-    configurations, generation parameters, environment resolution, and execution
-    timeouts.
+    configurations, generation parameters, pricing, environment resolution, and
+    execution timeouts.
 *   [agents.py](./codegen_classroom/agents.py): `StudentAgent` and
-    `SolutionAnalysisAgent` state management, refinement prompts, and peer
-    mutation strategies.
+    `SolutionAnalysisAgent` state management, token/cost tracking, refinement
+    prompts, and peer mutation strategies.
 *   [code_execution.py](./codegen_classroom/code_execution.py): Python code
     extraction and timed subprocess execution capturing `stdout`, `stderr`, and
     return values.

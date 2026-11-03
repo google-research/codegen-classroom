@@ -61,7 +61,6 @@ DEFAULT_METRIC_WEIGHTS: Mapping[str, float] = {
     "mae": 0.4,
     "exec_time": 0.01,
 }
-METRIC_WEIGHTS: Mapping[str, float] = DEFAULT_METRIC_WEIGHTS
 
 CANDIDATE_MODULES: tuple[str, ...] = (
     "numpy",
@@ -120,7 +119,7 @@ Metrics summary:
 
 ## 3. Evaluation & Budget
 
-- **Validation Protocol:** Hold-out validation during cycles; use internal K-fold cross-validation on `X_train` to guide feature selection and model blending.
+- **Validation Protocol:** Hold-out validation during cycles; use internal K-fold cross-validation on `X_train` to guide feature selection and hyperparameter tuning.
 - **Per-Cycle Wall-Clock Budget:** **{timeout_s} s** on {train_rows:,} training rows.
 - **Final Evaluation Budget:** **{final_eval_timeout_s} s** on {final_eval_rows:,} combined learning rows.
 - **Hard Resource Caps:** Single-threaded execution preferred (`n_jobs=1`); predictions must be finite 1D floats in column `'predictions'`.
@@ -137,7 +136,7 @@ Metrics summary:
 - **Regime-Conditioned Behavior:** Consider whether discrete operating states shift the baseline response or alter interactions among continuous variables, and how different model families represent state-dependent relationships.
 - **Non-Linear & Periodic Structure:** Inspect predictor distributions for skewness, cyclical patterns, or saturation effects, and consider appropriate transformations or basis expansions.
 - **Missingness & Signal Selection:** Handle missing entries cleanly without data leakage, and evaluate whether all input columns carry genuine out-of-fold signal versus noise.
-- **Complementary Model Families:** Consider the inductive biases of piecewise-constant tree ensembles versus smooth function approximators, and how blending structurally distinct models can improve generalization.
+- **Model Inductive Biases & Parsimony:** Compare the inductive biases of piecewise-constant tree estimators versus smooth function approximators (such as regularized linear, kernel, or spline models), and favor a clean, well-engineered model over complex multi-model combinations.
 
 ## 6. Pitfalls
 
@@ -149,7 +148,7 @@ Metrics summary:
 ## 7. Iteration Discipline
 
 - **Cycle 0 Baseline:** Start with a fast, verified baseline model to establish a clean benchmark score.
-- **One Lever per Cycle:** Test one well-defined hypothesis per cycle (feature representation, model family, or ensembling) and retain changes only when internal CV improves.
+- **One Lever per Cycle:** Test one well-defined hypothesis per cycle (feature representation, model family, or regularization) and retain changes only when internal CV improves.
 - **Use the Feedback Log:** Record out-of-fold R² and MAE deltas in `feedback` so subsequent cycles build on verified gains.
 
 ## 8. Output Contract Checklist
@@ -186,9 +185,10 @@ STUDENT_REFINE_INSTRUCTION_OPTIONS: list[str] = [
         " models or neural networks) on properly imputed and scaled features."
     ),
     (
-        "Feature Relevance & Out-of-Fold Blending: Audit feature importance to"
-        " prune uninformative variables, and explore combining predictions"
-        " from structurally diverse models using out-of-fold validation."
+        "Feature Relevance & Parsimony: Audit feature importance and residual"
+        " patterns to prune uninformative variables, refine regularization,"
+        " and verify that every retained feature and modeling component"
+        " improves out-of-fold generalization."
     ),
 ]
 
@@ -266,6 +266,3 @@ def build_student_instructions(
       imp_str=", ".join(f"`{m}`" for m in available_modules),
       forb_str=", ".join(f"`{m}`" for m in forbidden),
   )
-
-
-STUDENT_INSTRUCTIONS: str = build_student_instructions()

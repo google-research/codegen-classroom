@@ -108,6 +108,9 @@ class StudentCycleResult:
   mutation_strategy: str | None = None  # The mutation strategy used, if any.
   overall_score: float | None = None  # The final score for this cycle.
   metrics: MutableMapping[str, float] = dataclasses.field(default_factory=dict)
+  input_tokens: int = 0
+  output_tokens: int = 0
+  cost_usd: float = 0.0
 
   def flatten(self, prefix: str = "metrics_") -> Mapping[str, Any]:
     """Flattens the result, including all metrics calculated in this cycle."""
@@ -121,6 +124,22 @@ class StudentCycleResult:
       full_key = f"{prefix}{metric_name}"
       flat_dict[full_key] = metric_value
     return flat_dict
+
+
+def estimate_cost_usd(
+    model_name: str, input_tokens: int, output_tokens: int
+) -> float:
+  """Estimates API cost in USD from token counts and model pricing."""
+  name = model_name.lower().replace("_", "-")
+  in_rate, out_rate = next(
+      (
+          v
+          for k, v in agent_config.MODEL_PRICING_PER_1M_TOKENS.items()
+          if k in name
+      ),
+      (0.50, 3.00),
+  )
+  return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000.0
 
 
 class GeminiAgent:
@@ -142,6 +161,8 @@ class GeminiAgent:
     self.temperature = self.config.temperature
     self.max_output_tokens = self.config.max_output_tokens
     self.history: MutableSequence[tuple[str, str]] = []
+    self.input_tokens: int = 0
+    self.output_tokens: int = 0
 
     # Save agent config
     agent_config_dir = os.path.join(self.run_base_dir, "agent_configs")
@@ -195,6 +216,12 @@ class GeminiAgent:
         ),
     )
     response_text = (response.text or "") if response else ""
+
+    if usage := getattr(response, "usage_metadata", None):
+      self.input_tokens += usage.prompt_token_count or 0
+      self.output_tokens += (usage.candidates_token_count or 0) + (
+          usage.thoughts_token_count or 0
+      )
 
     if response_text.strip():
       self.history.append(("user", prompt))
@@ -346,7 +373,18 @@ class StudentAgent(GeminiAgent):
 
   def add_cycle_result(self, result: StudentCycleResult):
     """Adds a learning cycle result to the history."""
-    # logger.debug("[%s] Adding result for cycle %d", self.name, result.cycle)
+    result.input_tokens = self.input_tokens - sum(
+        r.input_tokens for r in self.cycle_results
+    )
+    result.output_tokens = self.output_tokens - sum(
+        r.output_tokens for r in self.cycle_results
+    )
+    result.cost_usd = round(
+        estimate_cost_usd(
+            self.model_name, result.input_tokens, result.output_tokens
+        ),
+        6,
+    )
     self.cycle_results.append(result)
 
   def update_best_solution(

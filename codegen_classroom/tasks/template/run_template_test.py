@@ -16,6 +16,7 @@
 
 import pathlib
 from absl.testing import absltest
+from codegen_classroom.tasks.template import config
 from codegen_classroom.tasks.template import data_loader
 from codegen_classroom.tasks.template import run_template
 import numpy as np
@@ -99,7 +100,7 @@ class RunTemplateTest(absltest.TestCase):
     self.assertGreater(r2_fe, 0.92)
 
   def test_build_student_instructions_contains_all_eight_sections(self):
-    prompt = run_template.build_student_instructions(
+    prompt = config.build_student_instructions(
         feature_names=["f0", "f1", "f2"],
         target_column="thermal_load",
         train_rows=960,
@@ -110,7 +111,7 @@ class RunTemplateTest(absltest.TestCase):
     )
 
     last_index = -1
-    for title in run_template.SECTION_TITLES:
+    for title in config.SECTION_TITLES:
       header = f"## {title}"
       self.assertIn(header, prompt)
       idx = prompt.index(header)
@@ -118,7 +119,7 @@ class RunTemplateTest(absltest.TestCase):
       last_index = idx
 
   def test_instructions_contain_numeric_budgets_and_features(self):
-    prompt = run_template.build_student_instructions(
+    prompt = config.build_student_instructions(
         feature_names=["feature_alpha", "feature_beta"],
         target_column="custom_target",
         train_rows=100,
@@ -136,18 +137,18 @@ class RunTemplateTest(absltest.TestCase):
     self.assertIn("125", prompt)
 
   def test_no_forbidden_hyperparameter_recipes(self):
-    prompt = run_template.build_student_instructions()
-    run_template.assert_no_recipes(prompt)
+    prompt = config.build_student_instructions()
+    config.assert_no_recipes(prompt)
 
-    run_template.assert_no_recipes(run_template.STUDENT_INITIAL_PROMPT)
+    config.assert_no_recipes(config.STUDENT_INITIAL_PROMPT)
 
-    refine_options = run_template.STUDENT_REFINE_INSTRUCTION_OPTIONS
+    refine_options = config.STUDENT_REFINE_INSTRUCTION_OPTIONS
     self.assertGreaterEqual(len(refine_options), 3)
     for opt in refine_options:
-      run_template.assert_no_recipes(opt)
+      config.assert_no_recipes(opt)
 
   def test_customize_annotations_present_for_task_authors(self):
-    prompt = run_template.build_student_instructions()
+    prompt = config.build_student_instructions()
     self.assertNotIn("# CUSTOMIZE:", prompt)
     config_src = pathlib.Path(run_template.config.__file__).read_text(
         encoding="utf-8"
@@ -155,10 +156,48 @@ class RunTemplateTest(absltest.TestCase):
     self.assertIn("# CUSTOMIZE:", config_src)
 
   def test_metric_weights_include_exec_time(self):
-    weights = run_template.DEFAULT_METRIC_WEIGHTS
+    weights = config.DEFAULT_METRIC_WEIGHTS
     self.assertIn("r2", weights)
     self.assertIn("mae", weights)
     self.assertIn("exec_time", weights)
+
+  def test_mock_student_and_export_top_solutions(self):
+    tmp_dir = self.create_tempdir().full_path
+    student = run_template._MockStudent(
+        config=run_template.agents.AgentConfig(name="student_0"),
+        run_base_dir=tmp_dir,
+    )
+    code_block = student.generate_solution("test")
+    self.assertIn("def solution(X_train, y_train, X_val):", code_block)
+    self.assertEqual(student.generate_code_count, 1)
+    pd.DataFrame([
+        {
+            "timestamp": "2026-10-22 12:00:00",
+            "experiment_name": "template_exp_a",
+            "student": "student_0",
+            "train_best_cycle": 2,
+            "test_r2": 0.96,
+            "test_mae": 0.30,
+            "total_tokens": 3000,
+            "est_cost_usd": 0.005,
+            "run_dir": "run_a",
+            "tags": "",
+        },
+        {
+            "timestamp": "2026-10-21 12:00:00",
+            "experiment_name": "template_mock",
+            "student": "student_0",
+            "train_best_cycle": 0,
+            "test_r2": 0.99,
+            "test_mae": 0.10,
+            "total_tokens": 1500,
+            "est_cost_usd": 0.002,
+            "run_dir": "run_mock",
+            "tags": "mock",
+        },
+    ]).to_csv(pathlib.Path(tmp_dir) / "leaderboard.tsv", sep="\t", index=False)
+    exported = run_template.export_top_solutions(tmp_dir, top_n=1, write=False)
+    self.assertEqual(exported, ["template_exp_a_20261022"])
 
 
 if __name__ == "__main__":

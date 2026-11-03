@@ -4,50 +4,48 @@ Use `tasks/template/` as the executable blueprint when creating or updating a
 benchmark task in `codegen_classroom`. Every task must be self-contained inside
 `tasks/<task>/` without modifying core library files (`codegen_classroom/*.py`).
 
-## 1. Standard Task Structure
+## Task Structure
 
 Keep each task directory minimal and self-contained:
 
 -   `__init__.py`: Package marker.
 -   `README.md`: Problem overview, dataset source/citation, evaluation metrics,
-    and usage commands.
+    and portable `python3 -m` / `pytest` usage commands using standard sections
+    (`## Overview`, `## Files`, `## Dataset`, `## Scoring`, `## Configuration`,
+    `## Results`, `## Quickstart`).
 -   `config.py`: Shared task configuration (`RUN_DEFAULTS`,
     `DEFAULT_STUDENT_MODELS`, `DEFAULT_METRIC_WEIGHTS`) and student prompts
     (`STUDENT_INSTRUCTIONS_TEMPLATE`, `STUDENT_INITIAL_PROMPT`,
     `STUDENT_REFINE_INSTRUCTION_OPTIONS`, `build_student_instructions()`)
     imported by both `run_<task>.py` and `<task>.ipynb`.
-
--   `data_loader.py`: Dataset download/generation, preprocessing, and
-    train/validation/test split helpers.
-
+-   `data_loader.py`: Dataset download/generation (`ensure_data()`),
+    preprocessing, and train/validation/test split helpers.
 -   `run_<task>.py`: Headless runner importing settings and prompts from
     `config.py`, executing the learning loop, submitting to the leaderboard, and
     exporting `solutions/`.
-
--   `run_<task>_test.py`: Fast, offline unit tests verifying data shapes, split
-    invariants, and student prompt sections.
-
+-   `run_<task>_test.py`: Fast, hermetic unit tests verifying data shapes, split
+    invariants, student prompt sections, and `_MockStudent`.
 -   `<task>.ipynb`: Companion Jupyter/Colab notebook importing settings and
     prompts from `config.py`, with all cell outputs cleared before committing.
-
 -   `leaderboard.tsv` (or `leaderboards/<variant>/leaderboard.tsv` for
-    multi-variant suites): Tab-separated evaluation log.
+    multi-variant suites): Tab-separated evaluation log recording performance,
+    `total_tokens`, and `est_cost_usd` (populated automatically by
+    `data_utils.submit_results_to_local_leaderboard()`).
+-   `solutions/`: Curated top-performing solution reports (`<solution_id>.md`)
+    and progress plots (`plots/<solution_id>.png`). Solution IDs must start
+    with a letter (e.g. `<task>_<descriptor>_<YYYYMMDD>`), place dates at the
+    end, and never contain dots or start with a digit.
 
--   `solutions/`: Top-performing solution reports (`<solution_id>.md`) and
-    progress plots (`plots/<solution_id>.png`). Solution IDs must start with a
-    letter (e.g. `<task>_<descriptor>_<YYYYMMDD>`), place dates at the end, and
-    never contain dots or start with a digit to strictly comply with Google3
-    Blaze package naming rules.
+## Conventions
 
-## 2. Core Conventions
-
-### Data & Artifact Hygiene
+### Data and Artifacts
 
 -   **Never commit raw datasets or binary weights**: Store downloaded archives
-    (`.zip`, `.tar.gz`), arrays (`.npy`, `.npz`, `.parquet`), audio/images
-    (`.wav`), and model weights (`.pt`, `.pth`, `.pkl`, `.h5`) strictly inside
-    gitignored `data/`, `cache/`, `models/`, or `experiments/` directories (or
-    external cache directories symlinked into `data/`).
+    (`.zip`, `.tar.gz`), arrays (`.npy`, `.npz`, `.parquet`), tabular datasets
+    (`.csv`), audio/images (`.wav`), and model weights (`.pt`, `.pth`, `.pkl`,
+    `.h5`) strictly inside gitignored `data/`, `cache/`, `models/`, or
+    `experiments/` directories (or external cache directories symlinked into
+    `data/`).
 -   **Leakage-free splits**: Hold out a final test split (`X_test`, `y_test`)
     that student agents never access during iterative learning cycles. Use group
     or chronological splits when observations share subjects or time series.
@@ -56,7 +54,7 @@ Keep each task directory minimal and self-contained:
     `<tempdir>/codegen_classroom/<task>`), never inside the tracked task
     directory.
 
-### Student Instructions Contract
+### Student Instructions
 
 Render student system instructions in `config.py` using the 8-section structure
 demonstrated in `tasks/template/config.py`:
@@ -74,17 +72,30 @@ demonstrated in `tasks/template/config.py`:
     experiment logging via `feedback`)
 8.  `8. Output Contract Checklist` (pre-return verification checklist)
 
-### Execution & Concurrency Safety
+### Notebooks, Runners, and Markdown
 
--   Cap thread pools (`OMP_NUM_THREADS`, `MKL_NUM_THREADS`,
-    `OPENBLAS_NUM_THREADS`) at the start of `main()` so parallel student
-    processes do not oversubscribe CPU cores.
--   Avoid importing heavy native/GPU frameworks (e.g., `torch`) in the parent
-    process prior to subprocess forking.
+-   **Notebooks**: Start setup in `<task>.ipynb` with a `# @title Install` cell
+    (`try` / `except ImportError:`
+    `!pip install -q "codegen-classroom[notebook]"`), and only place Colab
+    `# @param` annotations on literal values (never on
+    `config.RUN_DEFAULTS[...]` expressions).
+-   **Hermetic `_MockStudent`**: In `run_<task>.py`, `_MockStudent` should
+    default `config.api_key = "mock_key"` and
+    `run_base_dir = tempfile.gettempdir()`, and skip writing "mock" runs to
+    `leaderboard.tsv` or `solutions/`.
+-   **Markdown Tables**: Use single-line GitHub Flavored Markdown pipe tables
+    (`| col | col |`) in `README.md` and `solutions/*.md`.
+
+### Concurrency and Thread Limits
+
+-   Call `agent_config.load_env()` before running classroom cycles to load API
+    keys and cap worker BLAS/OpenMP thread pools.
+-   Avoid importing heavy native/GPU frameworks (e.g., `torch`, `jax`) in the
+    parent process prior to subprocess forking.
 -   Set `final_eval_timeout_s` to 2x–3x `timeout_s` so final evaluation on the
     combined learning split does not time out.
 
-## 3. Creating and Verifying a New Task
+## Creating a New Task
 
 1.  Copy `tasks/template/` to `tasks/<new_task>/` and replace all `# CUSTOMIZE:`
     placeholders.

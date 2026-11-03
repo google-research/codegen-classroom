@@ -53,6 +53,25 @@ DEFAULT_LATEST_MODELS = (
 # Combined tuple of default models used when spawning a classroom of students.
 DEFAULT_STUDENT_MODELS = DEFAULT_GEMINI_MODELS + DEFAULT_GEMMA_MODELS
 
+# Paid-tier Gemini Developer API pricing: (input_usd_per_1m, output_usd_per_1m).
+# Output rate includes thinking tokens.
+# https://aistudio.google.com/docs/pricing.md
+MODEL_PRICING_PER_1M_TOKENS: dict[str, tuple[float, float]] = {
+    "gemini-4-argon": (2.00, 10.00),
+    "gemini-3.8-flash": (0.75, 3.75),
+    "gemini-3.6-flash": (0.75, 3.75),
+    "gemini-3.5-flash": (0.50, 3.00),
+    "gemini-3-flash-preview": (0.50, 3.00),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-3.1-pro-preview": (2.00, 12.00),
+    "gemini-2.5-pro": (1.25, 10.00),
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemma-4-26b-a4b-it": (0.00, 0.00),
+    "gemma-4-31b-it": (0.00, 0.00),
+}
+
 # Default sampling temperature for LLM code generation.
 DEFAULT_TEMPERATURE = 0.5
 

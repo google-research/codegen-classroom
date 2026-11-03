@@ -47,6 +47,7 @@ class AgentsTestBase(parameterized.TestCase):
         )
     )
     self.mock_generate_response = mock.Mock()
+    self.mock_generate_response.usage_metadata = None
     self.mock_model_client_instance.models.generate_content.return_value = (
         self.mock_generate_response
     )
@@ -203,6 +204,21 @@ class GeminiAgentTest(AgentsTestBase):
     agent.history = [('user', 'p')]
     agent.reset_history()
     self.assertEqual(agent.history, [])
+
+  def test_generate_tracks_tokens_and_cost(self):
+    agent = self.create_agent(agents.StudentAgent)
+    self.set_mock_response('def solution(): pass')
+    self.mock_generate_response.usage_metadata = mock.Mock(
+        prompt_token_count=1000,
+        candidates_token_count=300,
+        thoughts_token_count=200,
+    )
+    agent.generate_solution('Write code')
+    self.assertEqual((agent.input_tokens, agent.output_tokens), (1000, 500))
+    res = agents.StudentCycleResult(cycle=0, overall_score=0.8)
+    agent.add_cycle_result(res)
+    self.assertEqual((res.input_tokens, res.output_tokens), (1000, 500))
+    self.assertAlmostEqual(res.cost_usd, 0.002, places=6)
 
 
 class StudentAgentTest(AgentsTestBase):
@@ -551,7 +567,7 @@ class StudentAgentTest(AgentsTestBase):
           testcase_name='eventual_success',
           side_effects=[
               genai.errors.ServerError('Server error', {}),
-              mock.Mock(text='print("new")'),
+              mock.Mock(text='print("new")', usage_metadata=None),
           ],
           max_retries=2,
           expected_result='print("new")',
@@ -944,6 +960,7 @@ class AnalyzeBestSolutionTest(AgentsTestBase):
       if isinstance(effect, str):
         m = mock.Mock()
         m.text = effect
+        m.usage_metadata = None
         side_effect_list.append(m)
       else:
         side_effect_list.append(effect)
