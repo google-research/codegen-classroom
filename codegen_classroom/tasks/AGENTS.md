@@ -57,20 +57,21 @@ Keep each task directory minimal and self-contained:
 ### Student Instructions
 
 Render student system instructions in `config.py` using the 8-section structure
-demonstrated in `tasks/template/config.py`:
+demonstrated in `tasks/template/config.py` (keep section headings and bullet
+labels concise, 1–3 words):
 
-1.  `1. Objective & What Is Rewarded` (task goal and exact metric weights)
+1.  `1. Objective` (task goal and exact metric weights)
 2.  `2. Data Contract` (input DataFrames, feature types, `(y_pred_df, feedback)`
     return signature)
-3.  `3. Evaluation & Budget` (per-cycle and final evaluation timeouts,
-    validation protocol)
+3.  `3. Evaluation` (per-cycle and final evaluation timeouts, validation
+    protocol)
 4.  `4. Environment` (importable packages, single-threaded execution limits)
-5.  `5. Principles & Levers` (domain modeling guidance and inductive biases—no
-    hardcoded hyperparameter recipes)
+5.  `5. Principles` (domain modeling guidance and inductive biases—no hardcoded
+    hyperparameter recipes or repetitive phrasing)
 6.  `6. Pitfalls` (index alignment, data leakage, degenerate predictions)
 7.  `7. Iteration Discipline` (fast cycle-0 baseline, single-axis refinement,
     experiment logging via `feedback`)
-8.  `8. Output Contract Checklist` (pre-return verification checklist)
+8.  `8. Output Contract` (pre-return verification checklist)
 
 ### Notebooks, Runners, and Markdown
 

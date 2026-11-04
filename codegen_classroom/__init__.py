@@ -24,7 +24,7 @@ from codegen_classroom import reporting
 from codegen_classroom import scoring
 from codegen_classroom import student_learning
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "__version__",

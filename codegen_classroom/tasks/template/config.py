@@ -78,14 +78,14 @@ FORBIDDEN_MODULES: tuple[str, ...] = (
 )
 
 SECTION_TITLES: tuple[str, ...] = (
-    "1. Objective & What Is Rewarded",
+    "1. Objective",
     "2. Data Contract",
-    "3. Evaluation & Budget",
+    "3. Evaluation",
     "4. Environment",
-    "5. Principles & Levers",
+    "5. Principles",
     "6. Pitfalls",
     "7. Iteration Discipline",
-    "8. Output Contract Checklist",
+    "8. Output Contract",
 )
 
 # ==============================================================================
@@ -95,7 +95,7 @@ SECTION_TITLES: tuple[str, ...] = (
 # CUSTOMIZE: Edit the 8-section Markdown template below for your task domain.
 STUDENT_INSTRUCTIONS_TEMPLATE = """# Task: {task_title}
 
-## 1. Objective & What Is Rewarded
+## 1. Objective
 
 Predict `{target_column}` across multi-regime thermal and workload telemetry observations.
 
@@ -117,7 +117,7 @@ Metrics summary:
   * `y_pred_df` (pd.DataFrame): Index matching `X_val.index`, single float column named `'predictions'`.
   * `feedback` (str): 3 to 6 concise lines logging what changed, internal CV R² and MAE, and diagnostic observations.
 
-## 3. Evaluation & Budget
+## 3. Evaluation
 
 - **Validation Protocol:** Hold-out validation during cycles; use internal K-fold cross-validation on `X_train` to guide feature selection and hyperparameter tuning.
 - **Per-Cycle Wall-Clock Budget:** **{timeout_s} s** on {train_rows:,} training rows.
@@ -131,17 +131,17 @@ Metrics summary:
 - **Network & Pretrained Weights:** No network access during execution.
 - **Single Code Block:** Provide one complete Python block defining `solution(X_train, y_train, X_val)`.
 
-## 5. Principles & Levers
+## 5. Principles
 
-- **Regime-Conditioned Behavior:** Consider whether discrete operating states shift the baseline response or alter interactions among continuous variables, and how different model families represent state-dependent relationships.
-- **Non-Linear & Periodic Structure:** Inspect predictor distributions for skewness, cyclical patterns, or saturation effects, and consider appropriate transformations or basis expansions.
-- **Missingness & Signal Selection:** Handle missing entries cleanly without data leakage, and evaluate whether all input columns carry genuine out-of-fold signal versus noise.
-- **Model Inductive Biases & Parsimony:** Compare the inductive biases of piecewise-constant tree estimators versus smooth function approximators (such as regularized linear, kernel, or spline models), and favor a clean, well-engineered model over complex multi-model combinations.
+- **Regime Behavior:** Consider whether discrete operating states shift the baseline response or alter interactions among continuous variables, and how different model families represent state-dependent relationships.
+- **Non-Linear Structure:** Inspect predictor distributions for skewness, cyclical patterns, or saturation effects, and consider appropriate transformations or basis expansions.
+- **Missingness & Selection:** Handle missing entries cleanly without data leakage, and evaluate whether all input columns carry genuine out-of-fold signal versus noise.
+- **Model Parsimony:** Compare the inductive biases of piecewise-constant tree estimators versus smooth function approximators (such as regularized linear, kernel, or spline models), and favor a clean, well-engineered model over complex multi-model combinations.
 
 ## 6. Pitfalls
 
 - **Index Alignment:** Returning a DataFrame whose index differs from `X_val.index` fails validation immediately.
-- **Missing Value Handling:** Many linear and neural estimators fail on raw `NaN` entries unless imputed first.
+- **Missing Values:** Many linear and neural estimators fail on raw `NaN` entries unless imputed first.
 - **Data Leakage:** Fit imputers, scalers, and feature selectors strictly on training folds before transforming validation data.
 - **Unbounded Grid Searches:** Exhaustive hyperparameter grids risk exceeding the per-cycle timeout.
 
@@ -151,7 +151,7 @@ Metrics summary:
 - **One Lever per Cycle:** Test one well-defined hypothesis per cycle (feature representation, model family, or regularization) and retain changes only when internal CV improves.
 - **Use the Feedback Log:** Record out-of-fold R² and MAE deltas in `feedback` so subsequent cycles build on verified gains.
 
-## 8. Output Contract Checklist
+## 8. Output Contract
 
 - [ ] Signature is `solution(X_train, y_train, X_val)` returning `(y_pred_df, feedback)`.
 - [ ] `y_pred_df` is a `pd.DataFrame` with index identical to `X_val.index` and one float column `'predictions'`.

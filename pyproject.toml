@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codegen-classroom"
-version = "0.1.0"
+version = "0.1.1"
 description = "A framework for iterative code generation and recursive self-improvement (RSI) on ML and data analysis tasks using parallel LLM agents, optimized for local and Colab deployments."
 readme = "README.md"
 requires-python = ">=3.9"

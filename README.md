@@ -45,8 +45,9 @@ Requires Python 3.9+ and a [`GEMINI_API_KEY`](https://ai.google.dev/gemini-api/d
 python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# 2. Install from PyPI (or editable local clone with `pip install -e .`)
+# 2. Install from PyPI
 pip install codegen-classroom
+# Or latest from Github: pip install "codegen-classroom @ git+https://github.com/google-research/codegen-classroom.git"
 
 # Optional extras:
 pip install "codegen-classroom[lightgbm]"  # LightGBM
@@ -136,7 +137,8 @@ and archived top solutions (`solutions/`).
 
 | Task | Summary | Notebook |
 | :--- | :--- | :---: |
-| [`template`](./codegen_classroom/tasks/template/) | Synthetic multi-regime thermal load regression template (`N = 1,500`, 10 features) scored on R², MAE, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/template/task_example.ipynb) |
+| [`housing`](./codegen_classroom/tasks/housing/) *(California Housing Prices)* | California housing price tabular regression (`N = 20,433`, 12 features) scored on R², MAPE, Pearson, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/housing/housing.ipynb) |
+| [`template`](./codegen_classroom/tasks/template/) *(Thermal Load Prediction)* | Synthetic multi-regime thermal load regression template (`N = 1,500`, 10 features) scored on R², MAE, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/template/task_example.ipynb) |
 
 ```bash
 # Run a benchmark task headlessly:
