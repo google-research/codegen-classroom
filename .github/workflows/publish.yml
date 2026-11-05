@@ -32,10 +32,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -51,12 +51,12 @@ jobs:
         with:
           workload_identity_provider: "projects/305452601764/locations/global/workloadIdentityPools/builders/providers/github"
 
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
       - name: Upload package to OSS Exit Gate Artifact Registry
         run: |
-          twine upload --skip-existing --repository-url https://us-python.pkg.dev/oss-exit-gate-prod/codegen-classroom--pypi dist/*
-
-      - name: Set up gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+          twine upload --repository-url https://us-python.pkg.dev/oss-exit-gate-prod/codegen-classroom--pypi dist/*
 
       - name: Trigger OSS Exit Gate publishing
         run: |
