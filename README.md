@@ -36,6 +36,52 @@ optimization.
 
 --------------------------------------------------------------------------------
 
+## Tasks
+
+Self-contained benchmark suites live under
+[`codegen_classroom/tasks/<task>/`](./codegen_classroom/tasks/). Each task
+includes a shared configuration (`config.py`), dataset loader
+(`data_loader.py`), headless runner (`run_<task>.py`), unit tests
+(`run_<task>_test.py`), companion notebook (`<task>.ipynb`), `leaderboard.tsv`,
+and archived top solutions (`solutions/`). To add a new task, copy
+[`tasks/template/`](./codegen_classroom/tasks/template/) or prompt a coding
+agent with [`tasks/AGENTS.md`](./codegen_classroom/tasks/AGENTS.md).
+
+| Task | Summary | Notebook |
+| :--- | :--- | :---: |
+| [`template`](./codegen_classroom/tasks/template/) *(Thermal Load Prediction)* | Synthetic multi-regime thermal load regression template (`N = 1,500`, 10 features) scored on R², MAE, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/template/task_example.ipynb) |
+| [`housing`](./codegen_classroom/tasks/housing/) *(California Housing Prices)* | California housing price tabular regression (`N = 20,433`, 12 features) scored on R², MAPE, Pearson, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/housing/housing.ipynb) |
+| [`wearable`](./codegen_classroom/tasks/wearable/) *(Physical Activity Recognition)* | Multi-class physiological activity classification from Apple Watch and Fitbit sensors (`N = 6,264`, 17 features, 6 classes) scored on Macro-F1, Accuracy, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/wearable/wearable.ipynb) |
+
+--------------------------------------------------------------------------------
+
+## Classroom Learning Method
+
+Each cycle evolves parallel **Student Agents** across four stages:
+
+1.  **Generate, Self-Debug, and Execute**: Each student writes a Python
+    `solution(x_train, y_train, x_val)` function executed in a timed sandbox,
+    automatically repairing runtime or output contract errors before returning
+    predictions and diagnostic `feedback` (e.g., CV scores or feature
+    importances).
+2.  **Multi-Objective Scoring**: Predictions are evaluated against weighted task
+    metrics (e.g., R², MAPE, Macro-F1) and execution time, updating each
+    student's `best_score` and `best_solution`.
+3.  **Guided Refinement and Peer Crossover**: Students refine their code using
+    domain prompts and self-logged `feedback`. After `max_mutation_count`
+    stagnant cycles, a student applies a **Mutation Strategy**:
+    *   `SELF_BEST_CODE`: Re-anchors on the student's own best solution.
+    *   `BEST_PEER_CROSSOVER` / `BEST_PEER_REPLACEMENT`: Adopts feature
+        engineering and modeling ideas from top-scoring peers.
+    *   `CONTRASTIVE_PEER_CROSSOVER`: Contrasts top peer solutions against
+        weaker attempts to combine winning patterns and avoid failure modes.
+4.  **Final Evaluation and Analysis**: Each student's `first`, `last`, and
+    `best` validation solutions are retrained on the full learning split and
+    evaluated once on the held-out test set, while `SolutionAnalysisAgent`
+    synthesizes results into `report.md` and `leaderboard.tsv`.
+
+--------------------------------------------------------------------------------
+
 ## Installation
 
 Requires Python 3.9+ and a [`GEMINI_API_KEY`](https://ai.google.dev/gemini-api/docs/api-key):
@@ -62,7 +108,57 @@ export GEMINI_API_KEY="your-api-key"       # Or copy .env.example to .env
 
 --------------------------------------------------------------------------------
 
+## Library Structure
+
+*   [agent_config.py](./codegen_classroom/agent_config.py): Default model
+    configurations, generation parameters, pricing, environment resolution, and
+    execution timeouts.
+*   [agents.py](./codegen_classroom/agents.py): `StudentAgent` and
+    `SolutionAnalysisAgent` state management, token/cost tracking, refinement
+    prompts, and peer mutation strategies.
+*   [code_execution.py](./codegen_classroom/code_execution.py): Python code
+    extraction and timed subprocess execution capturing `stdout`, `stderr`, and
+    return values.
+*   [data_utils.py](./codegen_classroom/data_utils.py): Data loading, file
+    operations (`etils.epath`), run ID generation, and `leaderboard.tsv`
+    tracking.
+*   [metrics.py](./codegen_classroom/metrics.py): Performance metrics (MAE, R²,
+    Pearson, Macro-F1, Worst-Group Accuracy) and score normalization.
+*   [plotting.py](./codegen_classroom/plotting.py): Progress and final
+    evaluation plots via Matplotlib (headless PNG export) or Plotly (notebooks).
+*   [reporting.py](./codegen_classroom/reporting.py): Structured logging,
+    Markdown table formatting, and report export (`report.md`).
+*   [scoring.py](./codegen_classroom/scoring.py): Prediction validation (shape,
+    index, NaN checks) and weighted composite scoring.
+*   [student_learning.py](./codegen_classroom/student_learning.py): Parallel
+    classroom cycle orchestration and final test evaluation across `first`,
+    `last`, and `best` strategies.
+*   [verify_task.py](./codegen_classroom/verify_task.py): Automated structural,
+    notebook, solution report, and prompt hygiene verifier.
+*   [tasks/](./codegen_classroom/tasks/): Benchmark task suites,
+    [Task Authoring Guide](./codegen_classroom/tasks/AGENTS.md), and
+    [canonical template](./codegen_classroom/tasks/template/).
+
+--------------------------------------------------------------------------------
+
 ## Quickstart
+
+### Run a Built-In Benchmark Task
+
+```bash
+# Run a benchmark task headlessly (evaluates held-out test split, writes report.md,
+# appends to leaderboard.tsv, and exports top runs to solutions/):
+python -m codegen_classroom.tasks.template.run_template
+
+# Rebuild report.md for an existing run without re-executing student code:
+python -m codegen_classroom.tasks.template.run_template --report_only=latest
+
+# Verify a single task or all tasks:
+python -m codegen_classroom.verify_task --task template --strict
+python -m codegen_classroom.verify_task --all
+```
+
+### Run on a Custom Dataset in Python
 
 Run an iterative classroom loop on any custom `pandas` dataset:
 
@@ -123,102 +219,6 @@ eval_results, _ = student_learning.run_parallel_classroom_final_evaluation(
 )
 print("Final evaluation completed:", eval_results)
 ```
-
---------------------------------------------------------------------------------
-
-## Tasks
-
-Self-contained benchmark suites live under
-[`codegen_classroom/tasks/<task>/`](./codegen_classroom/tasks/). Each task
-includes a shared configuration (`config.py`), dataset loader
-(`data_loader.py`), headless runner (`run_<task>.py`), unit tests
-(`run_<task>_test.py`), companion notebook (`<task>.ipynb`), `leaderboard.tsv`,
-and archived top solutions (`solutions/`).
-
-| Task | Summary | Notebook |
-| :--- | :--- | :---: |
-| [`housing`](./codegen_classroom/tasks/housing/) *(California Housing Prices)* | California housing price tabular regression (`N = 20,433`, 12 features) scored on R², MAPE, Pearson, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/housing/housing.ipynb) |
-| [`template`](./codegen_classroom/tasks/template/) *(Thermal Load Prediction)* | Synthetic multi-regime thermal load regression template (`N = 1,500`, 10 features) scored on R², MAE, and runtime. | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/google-research/codegen-classroom/blob/main/codegen_classroom/tasks/template/task_example.ipynb) |
-
-```bash
-# Run a benchmark task headlessly:
-python -m codegen_classroom.tasks.template.run_template
-
-# Verify a single task or all tasks:
-python -m codegen_classroom.verify_task --task template --strict
-python -m codegen_classroom.verify_task --all
-```
-
-A normal run (without `--mock_students`) ends by running the held-out final
-evaluation, writing `report.md` and saved predictions to the run directory,
-appending a row to the task's `leaderboard.tsv`, and exporting the top runs to
-`solutions/`. `--report_only=<run_dir|latest>` only rebuilds `report.md` for an
-existing run and never re-executes student code.
-
-To add a new benchmark task, copy
-[`tasks/template/`](./codegen_classroom/tasks/template/) or prompt a coding
-agent with [`tasks/AGENTS.md`](./codegen_classroom/tasks/AGENTS.md) to scaffold
-one end-to-end.
-
---------------------------------------------------------------------------------
-
-## Classroom Learning Method
-
-Each RSI cycle evolves parallel **Student Agents** across four stages:
-
-1.  **Generate, Self-Debug, and Execute**: Each student writes a Python
-    `solution(x_train, y_train, x_val)` function executed in a timed sandbox,
-    automatically repairing runtime or output contract errors before returning
-    predictions and diagnostic `feedback` (e.g., CV scores or feature
-    importances).
-2.  **Multi-Objective Scoring**: Predictions are evaluated against weighted task
-    metrics (e.g., R², MAPE, Macro-F1) and execution time, updating each
-    student's `best_score` and `best_solution`.
-3.  **Guided Refinement and Peer Crossover**: Students refine their code using
-    domain prompts and self-logged `feedback`. After `max_mutation_count`
-    stagnant cycles, a student applies a **Mutation Strategy**:
-    *   `SELF_BEST_CODE`: Re-anchors on the student's own best solution.
-    *   `BEST_PEER_CROSSOVER` / `BEST_PEER_REPLACEMENT`: Adopts feature
-        engineering and modeling ideas from top-scoring peers.
-    *   `CONTRASTIVE_PEER_CROSSOVER`: Contrasts top peer solutions against
-        weaker attempts to combine winning patterns and avoid failure modes.
-4.  **Final Evaluation and Analysis**: Each student's `first`, `last`, and
-    `best` validation solutions are retrained on the full learning split and
-    evaluated once on the held-out test set, while `SolutionAnalysisAgent`
-    synthesizes results into `report.md` and `leaderboard.tsv`.
-
---------------------------------------------------------------------------------
-
-## Library Structure
-
-*   [agent_config.py](./codegen_classroom/agent_config.py): Default model
-    configurations, generation parameters, pricing, environment resolution, and
-    execution timeouts.
-*   [agents.py](./codegen_classroom/agents.py): `StudentAgent` and
-    `SolutionAnalysisAgent` state management, token/cost tracking, refinement
-    prompts, and peer mutation strategies.
-*   [code_execution.py](./codegen_classroom/code_execution.py): Python code
-    extraction and timed subprocess execution capturing `stdout`, `stderr`, and
-    return values.
-*   [data_utils.py](./codegen_classroom/data_utils.py): Data loading, file
-    operations (`etils.epath`), run ID generation, and `leaderboard.tsv`
-    tracking.
-*   [metrics.py](./codegen_classroom/metrics.py): Performance metrics (MAE, R²,
-    Pearson, Macro-F1, Worst-Group Accuracy) and score normalization.
-*   [plotting.py](./codegen_classroom/plotting.py): Progress and final
-    evaluation plots via Matplotlib (headless PNG export) or Plotly (notebooks).
-*   [reporting.py](./codegen_classroom/reporting.py): Structured logging,
-    Markdown table formatting, and report export (`report.md`).
-*   [scoring.py](./codegen_classroom/scoring.py): Prediction validation (shape,
-    index, NaN checks) and weighted composite scoring.
-*   [student_learning.py](./codegen_classroom/student_learning.py): Parallel
-    classroom cycle orchestration and final test evaluation across `first`,
-    `last`, and `best` strategies.
-*   [verify_task.py](./codegen_classroom/verify_task.py): Automated structural,
-    notebook, solution report, and prompt hygiene verifier.
-*   [tasks/](./codegen_classroom/tasks/): Benchmark task suites,
-    [Task Authoring Guide](./codegen_classroom/tasks/AGENTS.md), and
-    [canonical template](./codegen_classroom/tasks/template/).
 
 --------------------------------------------------------------------------------
 
